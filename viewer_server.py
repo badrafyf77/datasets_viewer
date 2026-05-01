@@ -186,9 +186,25 @@ class DatasetViewerHandler(SimpleHTTPRequestHandler):
             self.send_error_json(HTTPStatus.NOT_FOUND, "Synthetic pipeline script was not found.")
             return
 
+        params = {}
+        if self.headers.get("Content-Length"):
+            try:
+                params = self.read_json_body()
+            except ValueError as exc:
+                self.send_error_json(HTTPStatus.BAD_REQUEST, str(exc))
+                return
+
+        command = [sys.executable, str(script_path)]
+        reference_audio = str(params.get("reference_audio") or "").strip()
+        reference_text = str(params.get("reference_text") or "").strip()
+        if reference_audio:
+            command.extend(["--reference-audio", reference_audio])
+        if reference_text:
+            command.extend(["--reference-text", reference_text])
+
         try:
             result = subprocess.run(
-                [sys.executable, str(script_path)],
+                command,
                 cwd=str(pipeline_dir),
                 check=False,
                 capture_output=True,
@@ -775,7 +791,33 @@ def parse_smoke_error(stdout: str) -> str:
     except json.JSONDecodeError:
         return ""
     if isinstance(payload, dict):
-        return str(payload.get("error") or "")
+        error = str(payload.get("error") or "")
+        nested = parse_nested_smoke_error(error)
+        return nested or friendly_smoke_error(error) or error
+    return ""
+
+
+def parse_nested_smoke_error(error: str) -> str:
+    try:
+        payload = json.loads(error)
+    except json.JSONDecodeError:
+        return friendly_smoke_error(error)
+    if not isinstance(payload, dict):
+        return friendly_smoke_error(error)
+    stderr = str(payload.get("stderr") or "").strip()
+    stdout = str(payload.get("stdout") or "").strip()
+    text = stderr or stdout or error
+    return friendly_smoke_error(text) or text
+
+
+def friendly_smoke_error(text: str) -> str:
+    if "No speaker references found" in text:
+        return (
+            "No OmniVoice reference speaker was found. Put a WAV file in "
+            "`synthetic_cs_dataset/data/reference_speakers/` with a matching `.txt` transcript, "
+            "or fill the Quick Test reference audio path and reference text fields. "
+            "The reference audio path can be absolute, or relative to `synthetic_cs_dataset/`."
+        )
     return ""
 
 

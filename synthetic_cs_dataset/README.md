@@ -84,7 +84,9 @@ python scripts/make_hf_dataset.py --data_dir data/
 To test the whole path with only one generated transcript and one TTS audio file:
 
 ```bash
-python scripts/run_smoke_test.py
+python scripts/run_smoke_test.py \
+  --reference-audio data/reference_speakers/ref_darija_french.wav \
+  --reference-text "السلام، سميتي أحمد، كنخدم dans le développement logiciel وكنهضر بالدارجة مع un peu de français."
 ```
 
 This writes to `data/smoke_test/` and does not overwrite the full dataset outputs.

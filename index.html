@@ -185,12 +185,32 @@
             <div class="panel-heading">
               <h2>Quick Test</h2>
             </div>
+            <div class="form-grid">
+              <label class="wide-field">
+                <span>Reference audio path</span>
+                <input
+                  id="smokeReferenceAudioInput"
+                  type="text"
+                  value="data/reference_speakers/ref_darija_french.wav"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="wide-field">
+                <span>Reference text</span>
+                <input
+                  id="smokeReferenceTextInput"
+                  type="text"
+                  value="السلام، سميتي أحمد، كنخدم dans le développement logiciel وكنهضر بالدارجة مع un peu de français."
+                  autocomplete="off"
+                />
+              </label>
+            </div>
             <div class="action-row">
               <button class="button primary" id="syntheticTestButton" type="button">
                 Run 1-Sample Test
               </button>
               <p class="hint">
-                Creates one transcript and one WAV under `synthetic_cs_dataset/data/smoke_test/`.
+                Put the reference WAV at the path above, or use an absolute path. The test writes to `synthetic_cs_dataset/data/smoke_test/`.
               </p>
             </div>
             <div class="result-box" id="smokeResult" hidden></div>

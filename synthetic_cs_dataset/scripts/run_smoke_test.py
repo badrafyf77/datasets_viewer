@@ -22,6 +22,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--keep-existing", action="store_true", help="Do not clear data/smoke_test first.")
     parser.add_argument("--timeout", type=int, default=900, help="Timeout per stage in seconds.")
+    parser.add_argument("--reference-audio", default="", help="Override default_reference_audio for this smoke run.")
+    parser.add_argument("--reference-text", default="", help="Override default_reference_text for this smoke run.")
     return parser.parse_args()
 
 
@@ -55,10 +57,33 @@ def run_step(command: list[str], cwd: Path, timeout: int) -> dict[str, Any]:
     return payload
 
 
+def runtime_config(config_path: Path, project_dir: Path, reference_audio: str, reference_text: str) -> Path:
+    if not reference_audio and not reference_text:
+        return config_path
+    try:
+        import yaml
+    except ImportError as exc:
+        raise RuntimeError("Install PyYAML first: pip install pyyaml") from exc
+
+    with config_path.open("r", encoding="utf-8") as handle:
+        config = yaml.safe_load(handle)
+    audio_config = config.setdefault("audio_generation", {})
+    if reference_audio:
+        audio_config["default_reference_audio"] = reference_audio
+    if reference_text:
+        audio_config["default_reference_text"] = reference_text
+
+    output_path = project_dir / "configs" / "runtime_smoke_generation.yaml"
+    with output_path.open("w", encoding="utf-8") as handle:
+        yaml.safe_dump(config, handle, allow_unicode=True, sort_keys=False)
+    return output_path
+
+
 def main() -> None:
     args = parse_args()
     project_dir = Path(__file__).resolve().parent.parent
     config_path = args.config if args.config.is_absolute() else project_dir / args.config
+    config_path = runtime_config(config_path, project_dir, args.reference_audio, args.reference_text)
     smoke_dir = project_dir / "data" / "smoke_test"
 
     if not args.keep_existing and smoke_dir.exists():

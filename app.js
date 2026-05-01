@@ -80,6 +80,8 @@ const els = {
   nextPage: document.getElementById("nextPage"),
   pageStatus: document.getElementById("pageStatus"),
   exportButton: document.getElementById("exportButton"),
+  smokeReferenceAudioInput: document.getElementById("smokeReferenceAudioInput"),
+  smokeReferenceTextInput: document.getElementById("smokeReferenceTextInput"),
   smokeResult: document.getElementById("smokeResult"),
   generatorForm: document.getElementById("generatorForm"),
   generatorConfigInput: document.getElementById("generatorConfigInput"),
@@ -330,8 +332,20 @@ async function runSyntheticTest() {
   setBusy(true, "Generating one transcript and one TTS audio file...");
 
   try {
+    const referenceAudio = els.smokeReferenceAudioInput?.value.trim() || "";
+    const referenceText = els.smokeReferenceTextInput?.value.trim() || "";
+    if (!referenceAudio || !referenceText) {
+      throw new Error("Reference audio path and reference text are required for OmniVoice.");
+    }
+
     const response = await fetch("./api/synthetic-test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       cache: "no-store",
+      body: JSON.stringify({
+        reference_audio: referenceAudio,
+        reference_text: referenceText,
+      }),
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || !payload.ok) {

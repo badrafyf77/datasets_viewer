@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Darija Dataset Viewer</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Dataset controls">
+        <header class="brand">
+          <div class="brand-mark" aria-hidden="true">DV</div>
+          <div>
+            <h1>Dataset Viewer</h1>
+            <p>Clean tables with inline audio.</p>
+          </div>
+        </header>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Load Data</h2>
+          </div>
+
+          <label class="dropzone" id="dropzone">
+            <input
+              id="fileInput"
+              type="file"
+              multiple
+              accept=".csv,.tsv,.json,.jsonl,.ndjson,.txt,.wav,.mp3,.m4a,.ogg,.oga,.aac,.flac,.webm"
+            />
+            <span class="dropzone-title">Drop files here</span>
+            <span class="dropzone-copy">CSV, TSV, JSON, JSONL, TXT, and audio</span>
+          </label>
+
+          <div class="load-actions">
+            <label class="button secondary">
+              Open Folder
+              <input id="folderInput" type="file" webkitdirectory multiple />
+            </label>
+            <label class="button secondary">
+              Open Files
+              <input
+                id="filePickerInput"
+                type="file"
+                multiple
+                accept=".csv,.tsv,.json,.jsonl,.ndjson,.txt,.wav,.mp3,.m4a,.ogg,.oga,.aac,.flac,.webm"
+              />
+            </label>
+          </div>
+
+          <button class="button subtle" id="manifestButton" type="button">
+            Load viewer-manifest.json
+          </button>
+          <p class="hint" id="loadHint">
+            Folder loading links local audio by path or filename.
+          </p>
+        </section>
+
+        <section class="panel dataset-panel">
+          <div class="panel-heading">
+            <h2>Datasets</h2>
+            <span class="count-pill" id="datasetCount">0</span>
+          </div>
+          <div class="dataset-list" id="datasetList" aria-live="polite"></div>
+        </section>
+
+        <section class="panel compact-panel">
+          <div class="panel-heading">
+            <h2>Audio Index</h2>
+            <span class="count-pill" id="audioCount">0</span>
+          </div>
+          <p class="hint" id="audioHint">No local audio files indexed yet.</p>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <section class="empty-state" id="emptyState">
+          <div>
+            <p class="eyebrow">Ready</p>
+            <h2>Open a dataset folder to inspect rows and play recordings.</h2>
+            <p>
+              The viewer keeps the table fast with pagination, search, column
+              filters, and automatic audio matching.
+            </p>
+          </div>
+        </section>
+
+        <section class="viewer" id="viewer" hidden>
+          <header class="viewer-header">
+            <div>
+              <p class="eyebrow" id="datasetKind">Dataset</p>
+              <h2 id="datasetTitle">No dataset selected</h2>
+              <p id="datasetSubtitle"></p>
+            </div>
+            <button class="button primary" id="exportButton" type="button">
+              Export Filtered JSONL
+            </button>
+          </header>
+
+          <div class="stats-grid" id="statsGrid" aria-label="Dataset stats"></div>
+
+          <div class="toolbar">
+            <label class="search-field">
+              <span>Search</span>
+              <input id="searchInput" type="search" placeholder="Text, speaker, path..." />
+            </label>
+
+            <label>
+              <span>Rows</span>
+              <select id="pageSizeSelect">
+                <option value="25">25</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+                <option value="250">250</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Audio</span>
+              <select id="audioFilter">
+                <option value="all">All rows</option>
+                <option value="linked">Playable</option>
+                <option value="missing">Missing</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Column</span>
+              <select id="columnFocus">
+                <option value="">All columns</option>
+              </select>
+            </label>
+          </div>
+
+          <details class="column-tools">
+            <summary>Columns</summary>
+            <div class="column-actions">
+              <button class="button subtle small" id="showAllColumns" type="button">
+                Show All
+              </button>
+              <button class="button subtle small" id="hideLongColumns" type="button">
+                Compact Text
+              </button>
+            </div>
+            <div class="column-toggles" id="columnToggles"></div>
+          </details>
+
+          <div class="table-shell">
+            <table class="data-table" id="dataTable">
+              <thead id="tableHead"></thead>
+              <tbody id="tableBody"></tbody>
+            </table>
+          </div>
+
+          <footer class="pagination">
+            <button class="button secondary" id="prevPage" type="button">Previous</button>
+            <span id="pageStatus">0 rows</span>
+            <button class="button secondary" id="nextPage" type="button">Next</button>
+          </footer>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

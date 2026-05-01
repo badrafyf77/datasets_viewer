@@ -170,6 +170,11 @@ async function runSyntheticTest() {
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || !payload.ok) {
+      if (response.status === 404 || response.status === 501) {
+        throw new Error(
+          "Synthetic test endpoint is not available. Restart with python3 viewer_server.py, not python3 -m http.server.",
+        );
+      }
       throw new Error(payload.error || `HTTP ${response.status}`);
     }
 

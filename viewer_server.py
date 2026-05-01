@@ -60,6 +60,15 @@ class DatasetViewerHandler(SimpleHTTPRequestHandler):
             if payload is not None:
                 self.send_json(payload)
             return
+        if parsed.path == "/api/server-info":
+            self.send_json(
+                {
+                    "ok": True,
+                    "server": "viewer_server.py",
+                    "features": ["datasets", "audio", "synthetic-test"],
+                }
+            )
+            return
         if parsed.path == "/api/audio":
             self.send_audio(parsed.query)
             return
@@ -436,6 +445,7 @@ def main() -> None:
     with ThreadingHTTPServer((args.host, args.port), handler) as server:
         print(f"Serving viewer on http://{args.host}:{args.port}/")
         print(f"Reading dataset from {args.dataset_path}")
+        print("Synthetic smoke test endpoint: /api/synthetic-test")
         server.serve_forever()
 
 

@@ -66,6 +66,9 @@ class DatasetViewerHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/audio-row":
             self.send_audio_row(parsed.query)
             return
+        if parsed.path == "/api/synthetic-test":
+            self.run_synthetic_test()
+            return
         if parsed.path == "/api/synthetic-test-audio":
             self.send_synthetic_test_audio(parsed.query)
             return

@@ -166,7 +166,6 @@ async function runSyntheticTest() {
 
   try {
     const response = await fetch("./api/synthetic-test", {
-      method: "POST",
       cache: "no-store",
     });
     const payload = await response.json().catch(() => ({}));

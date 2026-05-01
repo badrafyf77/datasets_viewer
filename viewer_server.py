@@ -15,7 +15,7 @@ import os
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".ogg", ".oga", ".aac", ".flac", ".webm"}
@@ -60,6 +60,9 @@ class DatasetViewerHandler(SimpleHTTPRequestHandler):
             return
         if parsed.path == "/api/audio":
             self.send_audio(parsed.query)
+            return
+        if parsed.path == "/api/audio-row":
+            self.send_audio_row(parsed.query)
             return
         super().do_GET()
 
@@ -122,6 +125,70 @@ class DatasetViewerHandler(SimpleHTTPRequestHandler):
         with audio_path.open("rb") as handle:
             self.copyfile(handle, self.wfile)
 
+    def send_audio_row(self, query: str) -> None:
+        params = parse_qs(query)
+        split = params.get("split", [""])[0]
+        column = params.get("column", [""])[0]
+        row_text = params.get("row", [""])[0]
+        if not split or not column or not row_text.isdigit():
+            self.send_error(HTTPStatus.BAD_REQUEST, "Missing split, row, or column")
+            return
+
+        try:
+            audio_value = load_audio_cell(
+                self.dataset_path.expanduser().resolve(),
+                split,
+                int(row_text),
+                column,
+            )
+            self.send_audio_value(audio_value)
+        except FileNotFoundError as exc:
+            self.send_error(HTTPStatus.NOT_FOUND, str(exc))
+        except Exception as exc:
+            self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
+
+    def send_audio_value(self, audio_value) -> None:
+        if not isinstance(audio_value, dict):
+            self.send_error(HTTPStatus.NOT_FOUND, "Audio cell is not a Hugging Face Audio value")
+            return
+
+        audio_bytes = audio_value.get("bytes")
+        audio_path_value = audio_value.get("path")
+
+        if audio_bytes:
+            path_hint = str(audio_path_value or "audio.wav")
+            content_type = mimetypes.guess_type(path_hint)[0] or "audio/wav"
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(audio_bytes)))
+            self.send_header("Accept-Ranges", "bytes")
+            self.end_headers()
+            self.wfile.write(audio_bytes)
+            return
+
+        if audio_path_value:
+            audio_path = Path(str(audio_path_value)).expanduser()
+            dataset_root = self.dataset_path.expanduser().resolve()
+            if not audio_path.is_absolute():
+                audio_path = dataset_root / audio_path
+            audio_path = audio_path.resolve()
+            if not audio_path.exists() or not audio_path.is_file():
+                raise FileNotFoundError(f"Audio file not found: {audio_path}")
+            self.send_file_audio(audio_path)
+            return
+
+        self.send_error(HTTPStatus.NOT_FOUND, "Audio cell has no bytes or path")
+
+    def send_file_audio(self, audio_path: Path) -> None:
+        content_type = mimetypes.guess_type(audio_path.name)[0] or "application/octet-stream"
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(audio_path.stat().st_size))
+        self.send_header("Accept-Ranges", "bytes")
+        self.end_headers()
+        with audio_path.open("rb") as handle:
+            self.copyfile(handle, self.wfile)
+
 
 def load_huggingface_dataset(path: Path, max_rows: int) -> list[dict]:
     try:
@@ -144,8 +211,37 @@ def load_huggingface_dataset(path: Path, max_rows: int) -> list[dict]:
     raise RuntimeError(f"Unsupported dataset type at {path}")
 
 
+def load_audio_cell(path: Path, split: str, row_index: int, column: str):
+    try:
+        from datasets import Audio, Dataset, DatasetDict, load_from_disk
+    except ImportError as exc:
+        raise RuntimeError("Install the `datasets` package on Lightning to read audio rows.") from exc
+
+    loaded = load_from_disk(str(path))
+    if isinstance(loaded, DatasetDict):
+        if split not in loaded:
+            raise FileNotFoundError(f"Split not found: {split}")
+        dataset = loaded[split]
+    elif isinstance(loaded, Dataset):
+        dataset = loaded
+    else:
+        raise RuntimeError(f"Unsupported dataset type at {path}")
+
+    if column not in dataset.column_names:
+        raise FileNotFoundError(f"Audio column not found: {column}")
+    if row_index < 0 or row_index >= len(dataset):
+        raise FileNotFoundError(f"Row not found: {row_index}")
+
+    feature = getattr(dataset, "features", {}).get(column)
+    if feature and feature.__class__.__name__ == "Audio":
+        dataset = dataset.cast_column(column, Audio(decode=False))
+
+    return dataset[row_index][column]
+
+
 def dataset_payload(name: str, dataset, root: Path, max_rows: int, audio_type) -> dict:
     prepared = prepare_audio_columns(dataset, audio_type)
+    audio_columns = get_audio_columns(prepared)
     row_count = len(prepared)
     limit = row_count if max_rows <= 0 else min(max_rows, row_count)
     records = []
@@ -154,6 +250,10 @@ def dataset_payload(name: str, dataset, root: Path, max_rows: int, audio_type) -
         record = clean_value(prepared[index])
         record["_split"] = name
         record["_row"] = index
+        for column in audio_columns:
+            record[f"_play_{column}"] = (
+                f"./api/audio-row?split={quote(name)}&row={index}&column={quote(column)}"
+            )
         records.append(record)
 
     label = f"{root.name} {name}".strip()
@@ -176,6 +276,14 @@ def prepare_audio_columns(dataset, audio_type):
         if feature.__class__.__name__ == "Audio":
             prepared = prepared.cast_column(column, audio_type(decode=False))
     return prepared
+
+
+def get_audio_columns(dataset) -> list[str]:
+    columns = []
+    for column, feature in getattr(dataset, "features", {}).items():
+        if feature.__class__.__name__ == "Audio":
+            columns.append(column)
+    return columns
 
 
 def clean_value(value):

@@ -526,7 +526,7 @@ function collectColumns(records) {
   const seen = new Set();
   for (const record of records) {
     for (const key of Object.keys(record)) {
-      if (key.startsWith("__")) continue;
+      if (key.startsWith("__") || key.startsWith("_play_")) continue;
       if (!seen.has(key)) {
         seen.add(key);
         columns.push(key);
@@ -582,6 +582,11 @@ function refreshActiveAudio() {
 }
 
 function findAudioPath(row, dataset) {
+  const serverPlayerColumn = Object.keys(row).find((column) => column.startsWith("_play_") && row[column]);
+  if (serverPlayerColumn) {
+    return { path: String(row[serverPlayerColumn]), column: serverPlayerColumn };
+  }
+
   const preferred = dataset.columns
     .filter((column) => AUDIO_NAME_RE.test(column) || AUDIO_PATH_RE.test(String(row[column] || "")))
     .concat(dataset.columns.filter((column) => /audio\.path|path$/i.test(column)));
@@ -651,6 +656,10 @@ function findLocalAudio(path, dataset) {
 
 function buildRemoteAudioSources(path, dataset) {
   if (/^(https?:|blob:|data:)/i.test(path)) return [path];
+
+  if (/^(api\/|\/api\/)/i.test(path)) {
+    return [path.startsWith("/") ? path : `./${path}`];
+  }
 
   if (dataset.source === "server" && path) {
     return [`./api/audio?path=${encodeURIComponent(path)}`];

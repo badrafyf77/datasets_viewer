@@ -100,4 +100,6 @@ python scripts/validate_dataset.py --data_dir data/
 python scripts/make_hf_dataset.py --data_dir data/
 ```
 
+When serving the viewer with `python3 viewer_server.py`, use the sidebar **Run 1-Sample Test** button to generate one transcript plus one OmniVoice audio file into `synthetic_cs_dataset/data/smoke_test/` and preview it immediately.
+
 See `synthetic_cs_dataset/README.md` for the config fields, speaker reference format, quality checks, and output layout.

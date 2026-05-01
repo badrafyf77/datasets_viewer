@@ -81,6 +81,14 @@ python scripts/validate_dataset.py --data_dir data/
 python scripts/make_hf_dataset.py --data_dir data/
 ```
 
+To test the whole path with only one generated transcript and one TTS audio file:
+
+```bash
+python scripts/run_smoke_test.py
+```
+
+This writes to `data/smoke_test/` and does not overwrite the full dataset outputs.
+
 For a small smoke test:
 
 ```bash
@@ -101,6 +109,16 @@ data/
   review_samples.csv
   bad_samples.csv
   hf_dataset/
+```
+
+The one-sample button in the viewer writes:
+
+```text
+data/smoke_test/
+  texts.jsonl
+  metadata.csv
+  dataset.jsonl
+  audio/
 ```
 
 `metadata.csv` contains:

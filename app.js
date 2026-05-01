@@ -35,6 +35,7 @@ const els = {
   folderInput: document.getElementById("folderInput"),
   dropzone: document.getElementById("dropzone"),
   manifestButton: document.getElementById("manifestButton"),
+  syntheticTestButton: document.getElementById("syntheticTestButton"),
   datasetList: document.getElementById("datasetList"),
   datasetCount: document.getElementById("datasetCount"),
   audioCount: document.getElementById("audioCount"),
@@ -153,6 +154,52 @@ async function loadServerDataset({ silent = false } = {}) {
     console.info("Dataset API unavailable:", error);
     if (!silent) showToast("Dataset server is not running. Use Open Folder or run viewer_server.py.");
     return false;
+  }
+}
+
+async function runSyntheticTest() {
+  if (!els.syntheticTestButton) return;
+  const previousText = els.syntheticTestButton.textContent.trim() || "Run 1-Sample Test";
+  els.syntheticTestButton.disabled = true;
+  els.syntheticTestButton.textContent = "Testing...";
+  setBusy(true, "Generating one transcript and one TTS audio file...");
+
+  try {
+    const response = await fetch("./api/synthetic-test", {
+      method: "POST",
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.error || `HTTP ${response.status}`);
+    }
+
+    const dataset = payload.dataset;
+    if (!dataset || !Array.isArray(dataset.records) || !dataset.records.length) {
+      throw new Error("Smoke test finished without returning a preview row.");
+    }
+
+    state.datasets = state.datasets.filter((item) => item.source !== "synthetic-test");
+    addDataset({
+      name: dataset.name || "Synthetic smoke test",
+      path: dataset.path || payload.data_dir || "synthetic smoke test",
+      source: "synthetic-test",
+      baseDir: "",
+      records: dataset.records,
+      isFinal: false,
+    });
+    state.activeId = state.datasets[state.datasets.length - 1].id;
+    state.page = 1;
+    state.sort = { column: null, direction: "asc" };
+    render();
+    showToast("Generated one synthetic text and audio sample.");
+  } catch (error) {
+    console.error(error);
+    showToast(`Synthetic test failed: ${error.message}`);
+  } finally {
+    els.syntheticTestButton.disabled = false;
+    els.syntheticTestButton.textContent = previousText;
+    setBusy(false);
   }
 }
 
@@ -1077,6 +1124,9 @@ function bindEvents() {
   els.filePickerInput.addEventListener("change", (event) => handleFiles(event.target.files));
   els.folderInput.addEventListener("change", (event) => handleFiles(event.target.files));
   els.manifestButton.addEventListener("click", loadManifest);
+  if (els.syntheticTestButton) {
+    els.syntheticTestButton.addEventListener("click", runSyntheticTest);
+  }
 
   els.dropzone.addEventListener("dragover", (event) => {
     event.preventDefault();

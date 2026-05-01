@@ -226,6 +226,12 @@ button {
   transform: translateY(-1px);
 }
 
+.button:disabled {
+  cursor: wait;
+  opacity: 0.68;
+  transform: none;
+}
+
 .button.primary {
   background: var(--teal);
   color: #fff;

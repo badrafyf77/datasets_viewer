@@ -12,6 +12,8 @@ import argparse
 import json
 import mimetypes
 import os
+import subprocess
+import sys
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -64,7 +66,17 @@ class DatasetViewerHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/audio-row":
             self.send_audio_row(parsed.query)
             return
+        if parsed.path == "/api/synthetic-test-audio":
+            self.send_synthetic_test_audio(parsed.query)
+            return
         super().do_GET()
+
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/synthetic-test":
+            self.run_synthetic_test()
+            return
+        self.send_error(HTTPStatus.NOT_FOUND, "Unknown endpoint")
 
     def send_json(self, payload: object) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -124,6 +136,82 @@ class DatasetViewerHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         with audio_path.open("rb") as handle:
             self.copyfile(handle, self.wfile)
+
+    def run_synthetic_test(self) -> None:
+        pipeline_dir = self.site_root / "synthetic_cs_dataset"
+        script_path = pipeline_dir / "scripts" / "run_smoke_test.py"
+        if not script_path.exists():
+            self.send_error_json(HTTPStatus.NOT_FOUND, "Synthetic pipeline script was not found.")
+            return
+
+        try:
+            result = subprocess.run(
+                [sys.executable, str(script_path)],
+                cwd=str(pipeline_dir),
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=int(os.environ.get("SYNTHETIC_TEST_TIMEOUT", "1200")),
+            )
+        except subprocess.TimeoutExpired:
+            self.send_error_json(HTTPStatus.GATEWAY_TIMEOUT, "Synthetic smoke test timed out.")
+            return
+
+        if result.returncode != 0:
+            message = parse_smoke_error(result.stdout) or result.stderr.strip() or "Synthetic smoke test failed."
+            self.send_error_json(HTTPStatus.INTERNAL_SERVER_ERROR, message[-4000:])
+            return
+
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            self.send_error_json(HTTPStatus.INTERNAL_SERVER_ERROR, result.stdout[-4000:] or "Invalid smoke test output.")
+            return
+
+        rows = payload.get("rows") if isinstance(payload, dict) else []
+        if not isinstance(rows, list) or not rows:
+            self.send_error_json(HTTPStatus.INTERNAL_SERVER_ERROR, "Smoke test did not create any rows.")
+            return
+
+        records = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            record = dict(row)
+            file_name = str(record.get("file_name") or record.get("audio") or "")
+            if file_name:
+                record["_play_audio"] = f"api/synthetic-test-audio?path={quote(file_name)}"
+            records.append(record)
+
+        response = {
+            "ok": True,
+            "data_dir": payload.get("data_dir"),
+            "text": payload.get("text"),
+            "audio_path": payload.get("audio_path"),
+            "dataset": {
+                "name": "Synthetic 1-sample smoke test",
+                "path": payload.get("dataset_path") or payload.get("data_dir") or "synthetic smoke test",
+                "records": records,
+            },
+        }
+        self.send_json(response)
+
+    def send_synthetic_test_audio(self, query: str) -> None:
+        params = parse_qs(query)
+        raw_path = params.get("path", [""])[0]
+        if not raw_path:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Missing path")
+            return
+
+        smoke_root = (self.site_root / "synthetic_cs_dataset" / "data" / "smoke_test").resolve()
+        audio_path = (smoke_root / unquote(raw_path)).resolve()
+        if not is_allowed_audio_path(audio_path, smoke_root):
+            self.send_error(HTTPStatus.FORBIDDEN, "Audio path is outside the smoke-test folder")
+            return
+        if not audio_path.exists() or not audio_path.is_file():
+            self.send_error(HTTPStatus.NOT_FOUND, "Audio file not found")
+            return
+        self.send_file_audio(audio_path)
 
     def send_audio_row(self, query: str) -> None:
         params = parse_qs(query)
@@ -313,6 +401,16 @@ def clean_value(value):
         shape = "x".join(str(part) for part in value.shape)
         return f"[array:{shape}]"
     return str(value)
+
+
+def parse_smoke_error(stdout: str) -> str:
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError:
+        return ""
+    if isinstance(payload, dict):
+        return str(payload.get("error") or "")
+    return ""
 
 
 def is_allowed_audio_path(path: Path, dataset_root: Path) -> bool:

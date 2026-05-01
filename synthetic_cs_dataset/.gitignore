@@ -8,3 +8,4 @@ data/*
 !data/generation_logs/.gitkeep
 __pycache__/
 *.pyc
+configs/runtime_generation_*.yaml

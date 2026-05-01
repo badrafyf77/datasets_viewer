@@ -3,170 +3,264 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Darija Dataset Viewer</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <title>Moroccan ASR Dataset Studio</title>
+    <link rel="stylesheet" href="./styles.css?v=studio2" />
   </head>
   <body>
     <div class="app-shell">
-      <aside class="sidebar" aria-label="Dataset controls">
+      <aside class="sidebar" aria-label="Workspace navigation">
         <header class="brand">
-          <div class="brand-mark" aria-hidden="true">DV</div>
+          <div class="brand-mark" aria-hidden="true">ASR</div>
           <div>
-            <h1>Dataset Viewer</h1>
-            <p>Clean tables with inline audio.</p>
+            <h1>Moroccan ASR Studio</h1>
+            <p>Inspect datasets and generate Darija code-switch speech.</p>
           </div>
         </header>
 
-        <section class="panel">
-          <div class="panel-heading">
-            <h2>Load Data</h2>
-          </div>
-
-          <label class="dropzone" id="dropzone">
-            <input
-              id="fileInput"
-              type="file"
-              multiple
-              accept=".csv,.tsv,.json,.jsonl,.ndjson,.txt,.wav,.mp3,.m4a,.ogg,.oga,.aac,.flac,.webm"
-            />
-            <span class="dropzone-title">Drop files here</span>
-            <span class="dropzone-copy">CSV, TSV, JSON, JSONL, TXT, and audio</span>
-          </label>
-
-          <div class="load-actions">
-            <label class="button secondary">
-              Open Folder
-              <input id="folderInput" type="file" webkitdirectory multiple />
-            </label>
-            <label class="button secondary">
-              Open Files
-              <input
-                id="filePickerInput"
-                type="file"
-                multiple
-                accept=".csv,.tsv,.json,.jsonl,.ndjson,.txt,.wav,.mp3,.m4a,.ogg,.oga,.aac,.flac,.webm"
-              />
-            </label>
-          </div>
-
-          <button class="button subtle" id="manifestButton" type="button">
-            Load viewer-manifest.json
+        <nav class="section-nav" aria-label="Main sections">
+          <button class="nav-button is-active" id="navViewer" type="button">
+            <span>Datasets Viewer</span>
+            <small>Load a dataset path and inspect rows</small>
           </button>
-          <button class="button subtle" id="syntheticTestButton" type="button">
-            Run 1-Sample Test
+          <button class="nav-button" id="navGenerator" type="button">
+            <span>Darija Code-Switch Generator</span>
+            <small>Create synthetic text and TTS audio</small>
           </button>
-          <p class="hint" id="loadHint">
-            Folder loading links local audio by path or filename.
-          </p>
-        </section>
-
-        <section class="panel dataset-panel">
-          <div class="panel-heading">
-            <h2>Datasets</h2>
-            <span class="count-pill" id="datasetCount">0</span>
-          </div>
-          <div class="dataset-list" id="datasetList" aria-live="polite"></div>
-        </section>
+        </nav>
 
         <section class="panel compact-panel">
           <div class="panel-heading">
-            <h2>Audio Index</h2>
-            <span class="count-pill" id="audioCount">0</span>
+            <h2>Server</h2>
+            <span class="status-dot" id="serverStatusDot" aria-hidden="true"></span>
           </div>
-          <p class="hint" id="audioHint">No local audio files indexed yet.</p>
+          <p class="hint" id="serverInfoText">
+            Checking backend features...
+          </p>
         </section>
       </aside>
 
       <main class="workspace">
-        <section class="empty-state" id="emptyState">
+        <section class="message-panel" id="messagePanel" hidden>
           <div>
-            <p class="eyebrow">Ready</p>
-            <h2>Open a dataset folder to inspect rows and play recordings.</h2>
-            <p>
-              The viewer keeps the table fast with pagination, search, column
-              filters, and automatic audio matching.
-            </p>
+            <p class="eyebrow" id="messageType">Message</p>
+            <h2 id="messageTitle">Something needs attention</h2>
+            <p id="messageText"></p>
+            <pre id="messageDetails" hidden></pre>
           </div>
+          <button class="button secondary small" id="messageClose" type="button">Dismiss</button>
         </section>
 
-        <section class="viewer" id="viewer" hidden>
-          <header class="viewer-header">
+        <section class="workspace-page" id="datasetPage">
+          <header class="page-header">
             <div>
-              <p class="eyebrow" id="datasetKind">Dataset</p>
-              <h2 id="datasetTitle">No dataset selected</h2>
-              <p id="datasetSubtitle"></p>
+              <p class="eyebrow">Datasets Viewer</p>
+              <h2>Load a speech dataset from a server path.</h2>
+              <p>
+                Enter a Hugging Face `save_to_disk` folder or dataset directory, choose a row
+                limit, then inspect transcripts and audio in the table.
+              </p>
             </div>
-            <button class="button primary" id="exportButton" type="button">
-              Export Filtered JSONL
-            </button>
           </header>
 
-          <div class="stats-grid" id="statsGrid" aria-label="Dataset stats"></div>
-
-          <div class="toolbar">
-            <label class="search-field">
-              <span>Search</span>
-              <input id="searchInput" type="search" placeholder="Text, speaker, path..." />
-            </label>
-
-            <label>
-              <span>Rows</span>
-              <select id="pageSizeSelect">
-                <option value="25">25</option>
-                <option value="50" selected>50</option>
-                <option value="100">100</option>
-                <option value="250">250</option>
-              </select>
-            </label>
-
-            <label>
-              <span>Audio</span>
-              <select id="audioFilter">
-                <option value="all">All rows</option>
-                <option value="linked">Playable</option>
-                <option value="missing">Missing</option>
-              </select>
-            </label>
-
-            <label>
-              <span>Column</span>
-              <select id="columnFocus">
-                <option value="">All columns</option>
-              </select>
-            </label>
-          </div>
-
-          <details class="column-tools">
-            <summary>Columns</summary>
-            <div class="column-actions">
-              <button class="button subtle small" id="showAllColumns" type="button">
-                Show All
-              </button>
-              <button class="button subtle small" id="hideLongColumns" type="button">
-                Compact Text
-              </button>
+          <section class="panel form-panel">
+            <div class="panel-heading">
+              <h2>Load Dataset</h2>
             </div>
-            <div class="column-toggles" id="columnToggles"></div>
-          </details>
+            <form class="form-grid dataset-load-form" id="datasetLoadForm">
+              <label class="wide-field">
+                <span>Dataset path</span>
+                <input
+                  id="datasetPathInput"
+                  type="text"
+                  value="/teamspace/studios/this_studio/darija_clean"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Max rows per split</span>
+                <input id="maxRowsInput" type="number" min="0" step="1" value="2000" />
+              </label>
+              <button class="button primary" id="loadDatasetButton" type="submit">
+                Load Dataset
+              </button>
+            </form>
+          </section>
 
-          <div class="table-shell">
-            <table class="data-table" id="dataTable">
-              <thead id="tableHead"></thead>
-              <tbody id="tableBody"></tbody>
-            </table>
-          </div>
+          <section class="panel dataset-panel">
+            <div class="panel-heading">
+              <h2>Loaded Datasets</h2>
+              <span class="count-pill" id="datasetCount">0</span>
+            </div>
+            <div class="dataset-list" id="datasetList" aria-live="polite"></div>
+          </section>
 
-          <footer class="pagination">
-            <button class="button secondary" id="prevPage" type="button">Previous</button>
-            <span id="pageStatus">0 rows</span>
-            <button class="button secondary" id="nextPage" type="button">Next</button>
-          </footer>
+          <section class="viewer" id="viewer" hidden>
+            <header class="viewer-header">
+              <div>
+                <p class="eyebrow" id="datasetKind">Dataset</p>
+                <h2 id="datasetTitle">No dataset selected</h2>
+                <p id="datasetSubtitle"></p>
+              </div>
+              <button class="button primary" id="exportButton" type="button">
+                Export Filtered JSONL
+              </button>
+            </header>
+
+            <div class="stats-grid" id="statsGrid" aria-label="Dataset stats"></div>
+
+            <div class="toolbar">
+              <label class="search-field">
+                <span>Search</span>
+                <input id="searchInput" type="search" placeholder="Text, speaker, path..." />
+              </label>
+
+              <label>
+                <span>Rows</span>
+                <select id="pageSizeSelect">
+                  <option value="25">25</option>
+                  <option value="50" selected>50</option>
+                  <option value="100">100</option>
+                  <option value="250">250</option>
+                </select>
+              </label>
+
+              <label>
+                <span>Audio</span>
+                <select id="audioFilter">
+                  <option value="all">All rows</option>
+                  <option value="linked">Playable</option>
+                  <option value="missing">Missing</option>
+                </select>
+              </label>
+
+              <label>
+                <span>Column</span>
+                <select id="columnFocus">
+                  <option value="">All columns</option>
+                </select>
+              </label>
+            </div>
+
+            <details class="column-tools">
+              <summary>Columns</summary>
+              <div class="column-actions">
+                <button class="button subtle small" id="showAllColumns" type="button">
+                  Show All
+                </button>
+                <button class="button subtle small" id="hideLongColumns" type="button">
+                  Compact Text
+                </button>
+              </div>
+              <div class="column-toggles" id="columnToggles"></div>
+            </details>
+
+            <div class="table-shell">
+              <table class="data-table" id="dataTable">
+                <thead id="tableHead"></thead>
+                <tbody id="tableBody"></tbody>
+              </table>
+            </div>
+
+            <footer class="pagination">
+              <button class="button secondary" id="prevPage" type="button">Previous</button>
+              <span id="pageStatus">0 rows</span>
+              <button class="button secondary" id="nextPage" type="button">Next</button>
+            </footer>
+          </section>
+        </section>
+
+        <section class="workspace-page" id="generatorPage" hidden>
+          <header class="page-header">
+            <div>
+              <p class="eyebrow">Darija Code-Switch Generator</p>
+              <h2>Generate mixed-script Darija, French, and English ASR data.</h2>
+              <p>
+                Run a one-sample smoke test first, then launch a full text and OmniVoice audio
+                generation job with the parameters below.
+              </p>
+            </div>
+          </header>
+
+          <section class="panel form-panel">
+            <div class="panel-heading">
+              <h2>Quick Test</h2>
+            </div>
+            <div class="action-row">
+              <button class="button primary" id="syntheticTestButton" type="button">
+                Run 1-Sample Test
+              </button>
+              <p class="hint">
+                Creates one transcript and one WAV under `synthetic_cs_dataset/data/smoke_test/`.
+              </p>
+            </div>
+            <div class="result-box" id="smokeResult" hidden></div>
+          </section>
+
+          <section class="panel form-panel">
+            <div class="panel-heading">
+              <h2>Generate Dataset</h2>
+            </div>
+            <form class="form-grid generator-form" id="generatorForm">
+              <label class="wide-field">
+                <span>Config path</span>
+                <input
+                  id="generatorConfigInput"
+                  type="text"
+                  value="synthetic_cs_dataset/configs/generation.yaml"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Number of texts</span>
+                <input id="generatorNumTextsInput" type="number" min="1" max="30000" step="1" value="10000" />
+              </label>
+              <label>
+                <span>Batch size</span>
+                <input id="generatorBatchSizeInput" type="number" min="1" max="100" step="1" value="40" />
+              </label>
+              <label>
+                <span>Target hours</span>
+                <input id="generatorTargetHoursInput" type="number" min="0.01" max="100" step="0.25" value="12" />
+              </label>
+              <label>
+                <span>Augmentation probability</span>
+                <input id="generatorAugProbInput" type="number" min="0" max="1" step="0.05" value="0.35" />
+              </label>
+              <label class="wide-field">
+                <span>Output folder</span>
+                <input id="generatorOutputDirInput" type="text" value="data" autocomplete="off" />
+              </label>
+              <label class="wide-field">
+                <span>Reference speakers folder</span>
+                <input
+                  id="generatorReferenceDirInput"
+                  type="text"
+                  value="data/reference_speakers"
+                  autocomplete="off"
+                />
+              </label>
+              <button class="button primary" id="generateDatasetButton" type="submit">
+                Generate Dataset
+              </button>
+            </form>
+
+            <div class="progress-card" id="generationProgressCard" hidden>
+              <div class="progress-header">
+                <strong id="generationProgressLabel">Waiting</strong>
+                <span id="generationProgressPercent">0%</span>
+              </div>
+              <div class="progress-track" aria-label="Generation progress">
+                <div class="progress-fill" id="generationProgressFill"></div>
+              </div>
+              <p class="hint" id="generationProgressDetails">No job running.</p>
+            </div>
+          </section>
         </section>
       </main>
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="./app.js"></script>
+    <script src="./app.js?v=studio2"></script>
   </body>
 </html>

@@ -27,9 +27,30 @@ const state = {
   pageSize: 50,
   page: 1,
   sort: { column: null, direction: "asc" },
+  activePage: "viewer",
+  serverAvailable: false,
+  syntheticTestAvailable: false,
+  generationJobId: null,
+  generationPollTimer: null,
 };
 
 const els = {
+  navViewer: document.getElementById("navViewer"),
+  navGenerator: document.getElementById("navGenerator"),
+  datasetPage: document.getElementById("datasetPage"),
+  generatorPage: document.getElementById("generatorPage"),
+  messagePanel: document.getElementById("messagePanel"),
+  messageType: document.getElementById("messageType"),
+  messageTitle: document.getElementById("messageTitle"),
+  messageText: document.getElementById("messageText"),
+  messageDetails: document.getElementById("messageDetails"),
+  messageClose: document.getElementById("messageClose"),
+  serverStatusDot: document.getElementById("serverStatusDot"),
+  serverInfoText: document.getElementById("serverInfoText"),
+  datasetLoadForm: document.getElementById("datasetLoadForm"),
+  datasetPathInput: document.getElementById("datasetPathInput"),
+  maxRowsInput: document.getElementById("maxRowsInput"),
+  loadDatasetButton: document.getElementById("loadDatasetButton"),
   fileInput: document.getElementById("fileInput"),
   filePickerInput: document.getElementById("filePickerInput"),
   folderInput: document.getElementById("folderInput"),
@@ -59,6 +80,21 @@ const els = {
   nextPage: document.getElementById("nextPage"),
   pageStatus: document.getElementById("pageStatus"),
   exportButton: document.getElementById("exportButton"),
+  smokeResult: document.getElementById("smokeResult"),
+  generatorForm: document.getElementById("generatorForm"),
+  generatorConfigInput: document.getElementById("generatorConfigInput"),
+  generatorNumTextsInput: document.getElementById("generatorNumTextsInput"),
+  generatorBatchSizeInput: document.getElementById("generatorBatchSizeInput"),
+  generatorTargetHoursInput: document.getElementById("generatorTargetHoursInput"),
+  generatorAugProbInput: document.getElementById("generatorAugProbInput"),
+  generatorOutputDirInput: document.getElementById("generatorOutputDirInput"),
+  generatorReferenceDirInput: document.getElementById("generatorReferenceDirInput"),
+  generateDatasetButton: document.getElementById("generateDatasetButton"),
+  generationProgressCard: document.getElementById("generationProgressCard"),
+  generationProgressLabel: document.getElementById("generationProgressLabel"),
+  generationProgressPercent: document.getElementById("generationProgressPercent"),
+  generationProgressFill: document.getElementById("generationProgressFill"),
+  generationProgressDetails: document.getElementById("generationProgressDetails"),
   toast: document.getElementById("toast"),
 };
 
@@ -116,6 +152,7 @@ function formatNumber(value) {
 }
 
 function showToast(message) {
+  if (!els.toast) return;
   els.toast.textContent = message;
   els.toast.classList.add("is-visible");
   window.clearTimeout(showToast.timer);
@@ -124,11 +161,48 @@ function showToast(message) {
   }, 3600);
 }
 
-async function loadServerDataset({ silent = false } = {}) {
+function showMessage(type, title, text, details = "") {
+  if (!els.messagePanel) return;
+  els.messagePanel.className = `message-panel ${type || ""}`.trim();
+  els.messagePanel.hidden = false;
+  els.messageType.textContent = type === "success" ? "Success" : type === "info" ? "Info" : "Error";
+  els.messageTitle.textContent = title;
+  els.messageText.textContent = text;
+  if (details) {
+    els.messageDetails.hidden = false;
+    els.messageDetails.textContent = details;
+  } else {
+    els.messageDetails.hidden = true;
+    els.messageDetails.textContent = "";
+  }
+}
+
+function showError(title, error, details = "") {
+  const message = error instanceof Error ? error.message : String(error || "Something went wrong.");
+  showMessage("error", title, message, details);
+}
+
+function clearMessage() {
+  if (els.messagePanel) els.messagePanel.hidden = true;
+}
+
+function switchPage(page) {
+  state.activePage = page;
+  els.datasetPage.hidden = page !== "viewer";
+  els.generatorPage.hidden = page !== "generator";
+  els.navViewer.classList.toggle("is-active", page === "viewer");
+  els.navGenerator.classList.toggle("is-active", page === "generator");
+}
+
+async function loadServerDataset({ silent = false, path = "", maxRows = 0 } = {}) {
   try {
-    const response = await fetch("./api/datasets", { cache: "no-store" });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const payload = await response.json();
+    const params = new URLSearchParams();
+    if (path) params.set("path", path);
+    if (maxRows !== undefined && maxRows !== null) params.set("max_rows", String(maxRows));
+    const url = `./api/datasets${params.toString() ? `?${params}` : ""}`;
+    const response = await fetch(url, { cache: "no-store" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
     const entries = Array.isArray(payload.datasets) ? payload.datasets : [];
     if (!entries.length) throw new Error("No datasets returned by server.");
 
@@ -148,17 +222,108 @@ async function loadServerDataset({ silent = false } = {}) {
 
     chooseDefaultDataset();
     render();
-    if (!silent) showToast("Loaded dataset from the local server.");
+    if (!silent) showMessage("success", "Dataset loaded", `Loaded ${formatNumber(entries.length)} split(s) from ${payload.path}.`);
     return true;
   } catch (error) {
     console.info("Dataset API unavailable:", error);
-    if (!silent) showToast("Dataset server is not running. Use Open Folder or run viewer_server.py.");
+    if (!silent) {
+      showError(
+        "Could not load dataset",
+        error,
+        "Make sure you are running `python3 viewer_server.py --host 0.0.0.0 --port 8000`, then check the dataset path.",
+      );
+    }
     return false;
+  }
+}
+
+async function detectServerFeatures() {
+  try {
+    const response = await fetch("./api/server-info", { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const payload = await response.json();
+    state.serverAvailable = true;
+    state.syntheticTestAvailable = Array.isArray(payload.features)
+      ? payload.features.includes("synthetic-test")
+      : false;
+    if (payload.default_dataset_path && els.datasetPathInput) {
+      els.datasetPathInput.value = payload.default_dataset_path;
+    }
+    if (payload.default_max_rows !== undefined && els.maxRowsInput) {
+      els.maxRowsInput.value = String(payload.default_max_rows);
+    }
+    if (els.serverInfoText) {
+      els.serverInfoText.textContent = "Backend ready. Dataset loading and generator actions are available.";
+    }
+  } catch {
+    state.serverAvailable = false;
+    state.syntheticTestAvailable = false;
+    if (els.serverInfoText) {
+      els.serverInfoText.textContent = "Static mode. Use viewer_server.py to load server paths or generate audio.";
+    }
+  }
+
+  if (els.serverStatusDot) els.serverStatusDot.classList.toggle("is-online", state.serverAvailable);
+  if (els.syntheticTestButton) {
+    els.syntheticTestButton.disabled = !state.syntheticTestAvailable;
+    els.syntheticTestButton.title = state.syntheticTestAvailable
+      ? "Generate one transcript and one audio file."
+      : "Requires python3 viewer_server.py; static http.server cannot run LLM/TTS generation.";
+  }
+  if (els.loadDatasetButton) {
+    els.loadDatasetButton.disabled = !state.serverAvailable;
+    els.loadDatasetButton.title = state.serverAvailable
+      ? "Load this server-side dataset path."
+      : "Requires python3 viewer_server.py.";
+  }
+  if (els.generateDatasetButton) {
+    els.generateDatasetButton.disabled = !state.syntheticTestAvailable;
+    els.generateDatasetButton.title = state.syntheticTestAvailable
+      ? "Start full generation."
+      : "Requires python3 viewer_server.py.";
+  }
+}
+
+async function loadDatasetFromForm(event) {
+  event.preventDefault();
+  clearMessage();
+  if (!state.serverAvailable) {
+    showError(
+      "Dataset loader unavailable",
+      "This page is running in static mode.",
+      "Start it with `python3 viewer_server.py --host 0.0.0.0 --port 8000`.",
+    );
+    return;
+  }
+
+  const path = els.datasetPathInput.value.trim();
+  const maxRows = Number(els.maxRowsInput.value || 0);
+  if (!path) {
+    showError("Missing dataset path", "Enter the dataset folder path before loading.");
+    return;
+  }
+
+  els.loadDatasetButton.disabled = true;
+  els.loadDatasetButton.textContent = "Loading...";
+  setBusy(true, "Loading dataset...");
+  try {
+    await loadServerDataset({ path, maxRows, silent: false });
+  } finally {
+    els.loadDatasetButton.disabled = false;
+    els.loadDatasetButton.textContent = "Load Dataset";
+    setBusy(false);
   }
 }
 
 async function runSyntheticTest() {
   if (!els.syntheticTestButton) return;
+  if (!state.syntheticTestAvailable) {
+    showError(
+      "Generator unavailable",
+      "Run the viewer with python3 viewer_server.py to enable the 1-sample test.",
+    );
+    return;
+  }
   const previousText = els.syntheticTestButton.textContent.trim() || "Run 1-Sample Test";
   els.syntheticTestButton.disabled = true;
   els.syntheticTestButton.textContent = "Testing...";
@@ -195,11 +360,16 @@ async function runSyntheticTest() {
     state.activeId = state.datasets[state.datasets.length - 1].id;
     state.page = 1;
     state.sort = { column: null, direction: "asc" };
+    switchPage("viewer");
     render();
-    showToast("Generated one synthetic text and audio sample.");
+    if (els.smokeResult) {
+      els.smokeResult.hidden = false;
+      els.smokeResult.textContent = `Generated: ${payload.text || "one sample"}\nAudio: ${payload.audio_path || ""}`;
+    }
+    showMessage("success", "1-sample test completed", "Generated one synthetic text and audio sample. It is loaded in the dataset viewer.");
   } catch (error) {
     console.error(error);
-    showToast(`Synthetic test failed: ${error.message}`);
+    showError("Synthetic test failed", error);
   } finally {
     els.syntheticTestButton.disabled = false;
     els.syntheticTestButton.textContent = previousText;
@@ -207,7 +377,104 @@ async function runSyntheticTest() {
   }
 }
 
+function generationParamsFromForm() {
+  return {
+    config_path: els.generatorConfigInput.value.trim(),
+    num_texts: Number(els.generatorNumTextsInput.value || 0),
+    batch_size: Number(els.generatorBatchSizeInput.value || 0),
+    target_hours: Number(els.generatorTargetHoursInput.value || 0),
+    augmentation_probability: Number(els.generatorAugProbInput.value || 0),
+    output_dir: els.generatorOutputDirInput.value.trim(),
+    reference_speakers_dir: els.generatorReferenceDirInput.value.trim(),
+  };
+}
+
+function setGenerationProgress(status = {}) {
+  if (!els.generationProgressCard) return;
+  const percent = Math.max(0, Math.min(100, Number(status.percent || 0)));
+  els.generationProgressCard.hidden = false;
+  els.generationProgressFill.style.width = `${percent}%`;
+  els.generationProgressPercent.textContent = `${Math.round(percent)}%`;
+  els.generationProgressLabel.textContent = status.stage || status.status || "Generation";
+  els.generationProgressDetails.textContent = status.message || "Waiting for job status...";
+}
+
+async function startGeneration(event) {
+  event.preventDefault();
+  clearMessage();
+  if (!state.syntheticTestAvailable) {
+    showError(
+      "Generator unavailable",
+      "Full generation needs the Python backend.",
+      "Start the app with `python3 viewer_server.py --host 0.0.0.0 --port 8000`.",
+    );
+    return;
+  }
+
+  const params = generationParamsFromForm();
+  if (!params.config_path || !params.output_dir || !params.reference_speakers_dir) {
+    showError("Missing generator parameter", "Config path, output folder, and reference speaker folder are required.");
+    return;
+  }
+  if (params.num_texts < 1 || params.num_texts > 30000) {
+    showError("Invalid text count", "Number of texts must be between 1 and 30000.");
+    return;
+  }
+
+  els.generateDatasetButton.disabled = true;
+  els.generateDatasetButton.textContent = "Starting...";
+  setGenerationProgress({ percent: 1, stage: "Starting", message: "Preparing the generation job..." });
+
+  try {
+    const response = await fetch("./api/generation/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    state.generationJobId = payload.job_id;
+    pollGenerationStatus();
+    window.clearInterval(state.generationPollTimer);
+    state.generationPollTimer = window.setInterval(pollGenerationStatus, 2000);
+  } catch (error) {
+    els.generateDatasetButton.disabled = false;
+    els.generateDatasetButton.textContent = "Generate Dataset";
+    showError("Could not start generation", error);
+  }
+}
+
+async function pollGenerationStatus() {
+  if (!state.generationJobId) return;
+  try {
+    const response = await fetch(`./api/generation/status?id=${encodeURIComponent(state.generationJobId)}`, {
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    setGenerationProgress(payload.job);
+
+    if (payload.job.status === "completed") {
+      window.clearInterval(state.generationPollTimer);
+      els.generateDatasetButton.disabled = false;
+      els.generateDatasetButton.textContent = "Generate Dataset";
+      showMessage("success", "Generation completed", payload.job.message || "Dataset generation finished.");
+    } else if (payload.job.status === "failed") {
+      window.clearInterval(state.generationPollTimer);
+      els.generateDatasetButton.disabled = false;
+      els.generateDatasetButton.textContent = "Generate Dataset";
+      showError("Generation failed", payload.job.error || "The generation job failed.", payload.job.log_tail || "");
+    }
+  } catch (error) {
+    window.clearInterval(state.generationPollTimer);
+    els.generateDatasetButton.disabled = false;
+    els.generateDatasetButton.textContent = "Generate Dataset";
+    showError("Could not read generation status", error);
+  }
+}
+
 function updateAudioSummary() {
+  if (!els.audioCount || !els.audioHint) return;
   const unique = new Set();
   for (const entry of state.audioFiles.values()) {
     unique.add(entry.url || entry.src || entry.path);
@@ -742,8 +1009,7 @@ function render() {
   updateAudioSummary();
 
   const dataset = activeDataset();
-  els.emptyState.hidden = Boolean(dataset);
-  els.viewer.hidden = !dataset;
+  if (els.viewer) els.viewer.hidden = !dataset;
   if (!dataset) return;
 
   annotateAudio(dataset);
@@ -751,6 +1017,7 @@ function render() {
 }
 
 function renderDatasetList() {
+  if (!els.datasetList || !els.datasetCount) return;
   els.datasetCount.textContent = formatNumber(state.datasets.length);
   els.datasetList.innerHTML = "";
 
@@ -1089,7 +1356,7 @@ async function loadManifest({ silent = false } = {}) {
     if (!silent) showToast("Loaded viewer-manifest.json.");
   } catch (error) {
     console.info("Manifest unavailable:", error);
-    if (!silent) showToast("No manifest found. Use Open Folder or create viewer-manifest.json.");
+    if (!silent) showError("No manifest found", "Create viewer-manifest.json or use the dataset path loader.");
   } finally {
     if (!silent) setBusy(false);
   }
@@ -1124,69 +1391,77 @@ async function loadManifestObject(manifest) {
 }
 
 function bindEvents() {
-  els.fileInput.addEventListener("change", (event) => handleFiles(event.target.files));
-  els.filePickerInput.addEventListener("change", (event) => handleFiles(event.target.files));
-  els.folderInput.addEventListener("change", (event) => handleFiles(event.target.files));
-  els.manifestButton.addEventListener("click", loadManifest);
-  if (els.syntheticTestButton) {
-    els.syntheticTestButton.addEventListener("click", runSyntheticTest);
-  }
+  const on = (element, eventName, handler) => {
+    if (element) element.addEventListener(eventName, handler);
+  };
 
-  els.dropzone.addEventListener("dragover", (event) => {
+  on(els.navViewer, "click", () => switchPage("viewer"));
+  on(els.navGenerator, "click", () => switchPage("generator"));
+  on(els.messageClose, "click", clearMessage);
+  on(els.datasetLoadForm, "submit", loadDatasetFromForm);
+  on(els.generatorForm, "submit", startGeneration);
+  on(els.syntheticTestButton, "click", runSyntheticTest);
+
+  on(els.fileInput, "change", (event) => handleFiles(event.target.files));
+  on(els.filePickerInput, "change", (event) => handleFiles(event.target.files));
+  on(els.folderInput, "change", (event) => handleFiles(event.target.files));
+  on(els.manifestButton, "click", loadManifest);
+
+  on(els.dropzone, "dragover", (event) => {
     event.preventDefault();
     els.dropzone.classList.add("is-dragging");
   });
-  els.dropzone.addEventListener("dragleave", () => {
+  on(els.dropzone, "dragleave", () => {
     els.dropzone.classList.remove("is-dragging");
   });
-  els.dropzone.addEventListener("drop", (event) => {
+  on(els.dropzone, "drop", (event) => {
     event.preventDefault();
     els.dropzone.classList.remove("is-dragging");
     handleFiles(event.dataTransfer.files);
   });
 
-  els.searchInput.addEventListener("input", (event) => {
+  on(els.searchInput, "input", (event) => {
     state.search = event.target.value;
     state.page = 1;
     render();
   });
 
-  els.pageSizeSelect.addEventListener("change", (event) => {
+  on(els.pageSizeSelect, "change", (event) => {
     state.pageSize = Number(event.target.value);
     state.page = 1;
     render();
   });
 
-  els.audioFilter.addEventListener("change", (event) => {
+  on(els.audioFilter, "change", (event) => {
     state.audioFilter = event.target.value;
     state.page = 1;
     render();
   });
 
-  els.columnFocus.addEventListener("change", (event) => {
+  on(els.columnFocus, "change", (event) => {
     state.focusedColumn = event.target.value;
     state.page = 1;
     render();
   });
 
-  els.prevPage.addEventListener("click", () => {
+  on(els.prevPage, "click", () => {
     state.page = Math.max(1, state.page - 1);
     render();
   });
 
-  els.nextPage.addEventListener("click", () => {
+  on(els.nextPage, "click", () => {
     state.page += 1;
     render();
   });
 
-  els.showAllColumns.addEventListener("click", () => {
+  on(els.showAllColumns, "click", () => {
     const dataset = activeDataset();
     if (!dataset) return;
     dataset.visibleColumns = new Set(dataset.columns);
     render();
   });
 
-  els.hideLongColumns.addEventListener("click", () => {
+  on(els.hideLongColumns, "click", () => {
     const dataset = activeDataset();
     if (!dataset) return;
     dataset.visibleColumns = new Set(
@@ -1195,12 +1470,10 @@ function bindEvents() {
     render();
   });
 
-  els.exportButton.addEventListener("click", exportFilteredRows);
+  on(els.exportButton, "click", exportFilteredRows);
 }
 
 bindEvents();
 render();
-
-loadServerDataset({ silent: true }).then((loaded) => {
-  if (!loaded) loadManifest({ silent: true }).catch(() => {});
-});
+switchPage("viewer");
+detectServerFeatures();

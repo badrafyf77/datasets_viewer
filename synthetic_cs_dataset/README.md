@@ -89,6 +89,14 @@ python scripts/run_smoke_test.py
 
 This writes to `data/smoke_test/` and does not overwrite the full dataset outputs.
 
+You can also use the web UI from the repo root:
+
+```bash
+python3 viewer_server.py --host 0.0.0.0 --port 8000
+```
+
+Open **Darija Code-Switch Generator** to run the one-sample test or start a full generation job with a progress bar.
+
 For a small smoke test:
 
 ```bash

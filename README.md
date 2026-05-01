@@ -1,111 +1,90 @@
-# Darija Dataset Viewer
+# Moroccan ASR Dataset Studio
 
-A portable local website for inspecting cleaned speech datasets in tidy tables with inline audio controls.
+A local web tool for two workflows:
 
-## Use It On Lightning
+- **Datasets Viewer**: load a server-side dataset path, choose a row preview limit, inspect rows, and play audio.
+- **Darija Code-Switch Generator**: run a one-sample smoke test or launch the synthetic Darija/French/English dataset pipeline.
 
-For your current Lightning dataset:
+## Run The Studio
+
+Use `viewer_server.py`. The generator and server-side dataset loader do not work with plain `python3 -m http.server`.
 
 ```bash
 cd ~/datasets_viewer
-python3 viewer_server.py /teamspace/studios/this_studio/darija_clean --host 0.0.0.0 --port 8000
+python3 viewer_server.py --host 0.0.0.0 --port 8000
 ```
 
-Then open your Lightning forwarded port URL. The page will automatically read:
+Then open your Lightning forwarded port URL.
+
+Confirm the backend is active:
 
 ```text
-/teamspace/studios/this_studio/darija_clean
+http://localhost:8000/api/server-info
 ```
 
-and show the `train`, `val`, and `test` splits as separate tables.
+It should return JSON with `synthetic-test` and `generation-jobs` in `features`.
 
-If the dataset is huge and the page feels heavy, start with a preview:
+## Datasets Viewer
 
-```bash
-python3 viewer_server.py /teamspace/studios/this_studio/darija_clean --host 0.0.0.0 --port 8000 --max-rows 2000
-```
+Open **Datasets Viewer**, set:
 
-## Use Static Folder Mode
+- `Dataset path`: for example `/teamspace/studios/this_studio/darija_clean`
+- `Max rows per split`: `0` for all rows, or a preview limit like `2000`
 
-Open `index.html` in a browser, then choose **Open Folder** and select the folder that contains your dataset files and audio files. The viewer supports:
+Then click **Load Dataset**.
 
-- Dataset files: `.csv`, `.tsv`, `.json`, `.jsonl`, `.ndjson`, `.txt`
-- Audio files: `.wav`, `.mp3`, `.m4a`, `.ogg`, `.oga`, `.aac`, `.flac`, `.webm`
-- Audio matching by full path, relative path, or filename
-- Final dataset highlighting when a file path contains names like `final`, `cleaned`, or `gold`
+The viewer supports Hugging Face `save_to_disk` datasets and DatasetDict folders through the Python server. It shows split tables, row stats, search, column controls, pagination, and inline audio when audio paths are available.
 
-For static cloud usage, move this whole folder to the cloud machine. You can either open `index.html` from the browser and pick a folder, or serve it:
+## Darija Code-Switch Generator
 
-```bash
-python3 -m http.server 8000
-```
+Open **Darija Code-Switch Generator**.
 
-Then open `http://localhost:8000`.
-
-## Optional Manifest
-
-If you serve the website and want it to load datasets automatically, create `viewer-manifest.json` beside `index.html`:
-
-```json
-{
-  "audioRoot": "data/audio",
-  "datasets": [
-    {
-      "name": "Final cleaned dataset",
-      "path": "data/final_dataset.jsonl",
-      "final": true
-    },
-    {
-      "name": "Raw review split",
-      "path": "data/raw_review.csv"
-    }
-  ]
-}
-```
-
-The manifest is optional. Folder selection is usually easiest while cleaning.
-
-## Parquet or Hugging Face Datasets
-
-Browsers cannot read Parquet, Arrow, or Hugging Face `save_to_disk` folders directly without a conversion layer. On the cloud machine, use the helper to convert those into JSONL and create a manifest:
-
-```bash
-python3 tools/prepare_for_viewer.py /path/to/your/datasets --out viewer_data --manifest viewer-manifest.json
-```
-
-For Parquet, install `pandas` and `pyarrow` on the cloud machine. For Hugging Face datasets, install `datasets`.
-
-Add `--copy-audio` if you also want the helper to copy audio files into `viewer_data/audio`.
-
-## Synthetic Darija Code-Switch ASR Pipeline
-
-This repo also includes `synthetic_cs_dataset/`, a two-stage pipeline for building a synthetic Moroccan phone-call ASR dataset for Whisper fine-tuning.
-
-It generates transcripts in the target style:
+Use **Run 1-Sample Test** first. It creates:
 
 ```text
-دارجة بالعربية + French/English in Latin script
+synthetic_cs_dataset/data/smoke_test/
+  texts.jsonl
+  metadata.csv
+  dataset.jsonl
+  audio/
 ```
 
-Then it uses a modular TTS interface with an included OmniVoice backend to create clean WAV files, train-only phone-call augmentations, metadata, validation reports, and a Hugging Face `DatasetDict`.
+For a full run, set the generation parameters and click **Generate Dataset**. The page polls the backend and shows a progress bar for text generation and audio generation.
 
-Run it from the pipeline folder:
+Required before generation:
+
+```bash
+export LIGHTNING_API_KEY="..."
+```
+
+Also make sure OmniVoice, torch, and the Python packages in `synthetic_cs_dataset/requirements.txt` are installed in the environment running `viewer_server.py`.
+
+## CLI Pipeline
+
+You can still run the synthetic pipeline directly:
 
 ```bash
 cd synthetic_cs_dataset
-export LIGHTNING_API_KEY="..."
 python scripts/generate_texts.py --config configs/generation.yaml
 python scripts/generate_audio.py --config configs/generation.yaml
 python scripts/validate_dataset.py --data_dir data/
 python scripts/make_hf_dataset.py --data_dir data/
 ```
 
-When serving the viewer with `python3 viewer_server.py`, use the sidebar **Run 1-Sample Test** button to generate one transcript plus one OmniVoice audio file into `synthetic_cs_dataset/data/smoke_test/` and preview it immediately.
+One-sample CLI smoke test:
 
-The button requires `viewer_server.py`; it cannot run from `python3 -m http.server`. After updating the files, restart the server and confirm this URL returns JSON:
-
-```text
-http://localhost:8000/api/server-info
+```bash
+python scripts/run_smoke_test.py
 ```
 
 See `synthetic_cs_dataset/README.md` for the config fields, speaker reference format, quality checks, and output layout.
+
+## Dataset Conversion Helper
+
+Browsers cannot read Parquet, Arrow, or Hugging Face `save_to_disk` folders directly without a conversion layer. If you need JSONL files for separate review or sharing, use:
+
+```bash
+python3 tools/prepare_for_viewer.py /path/to/your/datasets --out viewer_data --manifest viewer-manifest.json
+```
+
+For Parquet, install `pandas` and `pyarrow`. For Hugging Face datasets, install `datasets`.

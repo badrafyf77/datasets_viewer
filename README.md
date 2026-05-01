@@ -76,3 +76,28 @@ python3 tools/prepare_for_viewer.py /path/to/your/datasets --out viewer_data --m
 For Parquet, install `pandas` and `pyarrow` on the cloud machine. For Hugging Face datasets, install `datasets`.
 
 Add `--copy-audio` if you also want the helper to copy audio files into `viewer_data/audio`.
+
+## Synthetic Darija Code-Switch ASR Pipeline
+
+This repo also includes `synthetic_cs_dataset/`, a two-stage pipeline for building a synthetic Moroccan phone-call ASR dataset for Whisper fine-tuning.
+
+It generates transcripts in the target style:
+
+```text
+دارجة بالعربية + French/English in Latin script
+```
+
+Then it uses a modular TTS interface with an included OmniVoice backend to create clean WAV files, train-only phone-call augmentations, metadata, validation reports, and a Hugging Face `DatasetDict`.
+
+Run it from the pipeline folder:
+
+```bash
+cd synthetic_cs_dataset
+export LIGHTNING_API_KEY="..."
+python scripts/generate_texts.py --config configs/generation.yaml
+python scripts/generate_audio.py --config configs/generation.yaml
+python scripts/validate_dataset.py --data_dir data/
+python scripts/make_hf_dataset.py --data_dir data/
+```
+
+See `synthetic_cs_dataset/README.md` for the config fields, speaker reference format, quality checks, and output layout.

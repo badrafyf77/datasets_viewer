@@ -1,0 +1,9 @@
+openai
+pyyaml
+tqdm
+pandas
+soundfile
+librosa
+numpy
+datasets
+jsonlines

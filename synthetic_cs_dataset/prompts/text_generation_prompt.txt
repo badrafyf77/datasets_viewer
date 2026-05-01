@@ -1,0 +1,34 @@
+You are generating training transcripts for Moroccan Darija ASR.
+
+Generate exactly {n} unique Moroccan phone-call style utterances.
+
+Required transcript style:
+- Write Moroccan Darija parts in Arabic script.
+- Keep French and English words in Latin script.
+- Do not Arabize French or English words.
+- Include natural Moroccan code-switching when requested.
+- Avoid Modern Standard Arabic-heavy phrasing.
+- Avoid Gulf, Egyptian, or Levantine dialect.
+- Avoid explicit, unsafe, political, religious, or private personal data.
+- Do not invent real phone numbers, emails, addresses, names, IDs, order IDs, or bank data.
+- Use placeholders only when needed: <NAME>, <PHONE>, <ORDER_ID>.
+- Keep utterances mostly 3 to {max_words} words.
+- Keep punctuation simple and natural.
+- No emojis.
+
+Current batch:
+- First id: {first_id}
+- Last id: {last_id}
+- Domain choices: {domains}
+- Requested language mix: {mix_description}
+- French words and phrases to use naturally when French is requested: {french_terms}
+- English words and phrases to use naturally when English is requested: {english_terms}
+
+Return only valid JSONL. Do not wrap the output in Markdown.
+Each line must be one JSON object with exactly these fields:
+{{"id":"cs_000001","domain":"phone_call_support","text":"السلام، واش ممكن نبدلو rendez-vous ديال غدا؟","language_mix":["darija","french"],"contains_code_switch":true}}
+
+Quality examples:
+Good: "اليوم عندي rendez-vous مع le client باش نهضرو على projet."
+Bad: "عندي رنديفو مع الكليان."
+Bad: "I have a meeting with the client."

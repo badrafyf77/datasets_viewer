@@ -1,0 +1,90 @@
+# Synthetic Moroccan Darija code-switching ASR generation config.
+# Run commands from this folder:
+#   python scripts/generate_texts.py --config configs/generation.yaml
+#   python scripts/generate_audio.py --config configs/generation.yaml
+
+project:
+  seed: 42
+
+text_generation:
+  output_path: data/texts.jsonl
+  prompt_path: prompts/text_generation_prompt.txt
+  num_texts: 10000
+  batch_size: 40
+  max_retries_per_batch: 5
+  max_words: 25
+  min_words: 3
+  resume: true
+
+  provider: openai_compatible
+  api_base_url: https://lightning.ai/api/v1/
+  api_key_env: LIGHTNING_API_KEY
+  model: lightning-ai/deepseek-v4-pro
+  temperature: 0.9
+  top_p: 0.95
+  max_tokens: 6000
+  request_timeout_seconds: 120
+
+  language_mix_distribution:
+    darija_french: 0.50
+    darija_english: 0.25
+    darija_french_english: 0.15
+    pure_darija: 0.10
+
+  domains:
+    - phone_call_support
+    - appointment_booking
+    - delivery_order_tracking
+    - bank_insurance_calls
+    - university_admin_calls
+    - healthcare_appointment_calls
+    - job_interview_calls
+    - technical_support
+    - project_team_calls
+    - ecommerce_returns_refunds
+    - travel_hotel_taxi_calls
+    - family_friend_casual_calls
+
+audio_generation:
+  texts_path: data/texts.jsonl
+  output_dir: data
+  audio_subdir: audio
+  logs_dir: data/generation_logs
+  target_hours: 12.0
+  sample_rate: 24000
+  min_duration_seconds: 1.0
+  max_duration_seconds: 25.0
+  source_label: omnivoice_synthetic
+
+  tts_backend: omnivoice
+  tts_model_name_or_path: k2-fsa/OmniVoice
+  device_map: cuda:0
+  dtype: float16
+
+  # Preferred: put 10-30 reference WAV/FLAC files here, each with a matching
+  # .txt sidecar containing the reference transcript, or add references.csv
+  # with columns: speaker_id,audio_path,ref_text
+  reference_speakers_dir: data/reference_speakers
+  default_reference_audio: ""
+  default_reference_text: ""
+
+  duplicate_second_speaker_probability: 0.25
+  augmentation_probability: 0.35
+  augmentation_suffix: phone
+
+splits:
+  train: 0.90
+  validation: 0.05
+  test: 0.05
+  # If you have a real human code-switch test set, keep it outside this
+  # synthetic generator and merge it later. Synthetic test rows are marked
+  # is_temporary_synthetic_test=true.
+  real_human_test_metadata: ""
+
+review:
+  sample_size: 300
+  output_path: data/review_samples.csv
+
+quality:
+  bad_samples_path: data/bad_samples.csv
+  allowed_duplicate_text_versions: 4

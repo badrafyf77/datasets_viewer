@@ -123,6 +123,39 @@ function showToast(message) {
   }, 3600);
 }
 
+async function loadServerDataset({ silent = false } = {}) {
+  try {
+    const response = await fetch("./api/datasets", { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const payload = await response.json();
+    const entries = Array.isArray(payload.datasets) ? payload.datasets : [];
+    if (!entries.length) throw new Error("No datasets returned by server.");
+
+    state.datasets = state.datasets.filter((dataset) => dataset.source !== "server");
+    state.activeId = null;
+
+    for (const entry of entries) {
+      addDataset({
+        name: entry.name || readableName(entry.path || "dataset"),
+        path: entry.path || payload.path || "server dataset",
+        source: "server",
+        baseDir: "",
+        records: entry.records || [],
+        isFinal: Boolean(entry.final) || isFinalDataset(entry.path || payload.path || ""),
+      });
+    }
+
+    chooseDefaultDataset();
+    render();
+    if (!silent) showToast("Loaded dataset from the local server.");
+    return true;
+  } catch (error) {
+    console.info("Dataset API unavailable:", error);
+    if (!silent) showToast("Dataset server is not running. Use Open Folder or run viewer_server.py.");
+    return false;
+  }
+}
+
 function updateAudioSummary() {
   const unique = new Set();
   for (const entry of state.audioFiles.values()) {
@@ -467,7 +500,8 @@ function flattenRecord(record, prefix = "", output = {}) {
 }
 
 function addDataset(dataset) {
-  const columns = collectColumns(dataset.records);
+  const preparedRecords = dataset.records.map((record, index) => toRecord(record, index));
+  const columns = collectColumns(preparedRecords);
   const orderedColumns = orderColumns(columns);
   const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const visibleColumns = new Set(orderedColumns);
@@ -475,7 +509,7 @@ function addDataset(dataset) {
   const nextDataset = {
     id,
     ...dataset,
-    records: dataset.records.map((record, index) => ({
+    records: preparedRecords.map((record, index) => ({
       ...record,
       __rowIndex: index + 1,
     })),
@@ -617,6 +651,10 @@ function findLocalAudio(path, dataset) {
 
 function buildRemoteAudioSources(path, dataset) {
   if (/^(https?:|blob:|data:)/i.test(path)) return [path];
+
+  if (dataset.source === "server" && path) {
+    return [`./api/audio?path=${encodeURIComponent(path)}`];
+  }
 
   const candidates = new Set();
   const globalAudioRoot = dataset.manifestAudioRoot || "";
@@ -1100,4 +1138,6 @@ function bindEvents() {
 bindEvents();
 render();
 
-loadManifest({ silent: true }).catch(() => {});
+loadServerDataset({ silent: true }).then((loaded) => {
+  if (!loaded) loadManifest({ silent: true }).catch(() => {});
+});

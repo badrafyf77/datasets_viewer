@@ -2,7 +2,30 @@
 
 A portable local website for inspecting cleaned speech datasets in tidy tables with inline audio controls.
 
-## Use It
+## Use It On Lightning
+
+For your current Lightning dataset:
+
+```bash
+cd ~/datasets_viewer
+python3 viewer_server.py /teamspace/studios/this_studio/darija_clean --host 0.0.0.0 --port 8000
+```
+
+Then open your Lightning forwarded port URL. The page will automatically read:
+
+```text
+/teamspace/studios/this_studio/darija_clean
+```
+
+and show the `train`, `val`, and `test` splits as separate tables.
+
+If the dataset is huge and the page feels heavy, start with a preview:
+
+```bash
+python3 viewer_server.py /teamspace/studios/this_studio/darija_clean --host 0.0.0.0 --port 8000 --max-rows 2000
+```
+
+## Use Static Folder Mode
 
 Open `index.html` in a browser, then choose **Open Folder** and select the folder that contains your dataset files and audio files. The viewer supports:
 
@@ -11,7 +34,7 @@ Open `index.html` in a browser, then choose **Open Folder** and select the folde
 - Audio matching by full path, relative path, or filename
 - Final dataset highlighting when a file path contains names like `final`, `cleaned`, or `gold`
 
-For cloud usage, move this whole folder to the cloud machine. You can either open `index.html` from the browser and pick a folder, or serve it:
+For static cloud usage, move this whole folder to the cloud machine. You can either open `index.html` from the browser and pick a folder, or serve it:
 
 ```bash
 python3 -m http.server 8000

@@ -214,7 +214,7 @@ def load_config(path: Path) -> dict[str, Any]:
         return yaml.safe_load(handle)
 
 
-def load_dotenv(path: Path) -> None:
+def load_dotenv(path: Path, override: bool = True) -> None:
     if not path.exists():
         return
 
@@ -235,7 +235,8 @@ def load_dotenv(path: Path) -> None:
             value = value.strip()
             if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
                 value = value[1:-1]
-            os.environ.setdefault(key, value)
+            if override or key not in os.environ:
+                os.environ[key] = value
 
 
 def resolve_path(path_value: str | os.PathLike[str], base_dir: Path) -> Path:

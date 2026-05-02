@@ -31,11 +31,13 @@
         <section class="panel compact-panel">
           <div class="panel-heading">
             <h2>Server</h2>
-            <span class="status-dot" id="serverStatusDot" aria-hidden="true"></span>
+            <span
+              class="status-dot"
+              id="serverStatusDot"
+              aria-hidden="true"
+            ></span>
           </div>
-          <p class="hint" id="serverInfoText">
-            Checking backend features...
-          </p>
+          <p class="hint" id="serverInfoText">Checking backend features...</p>
         </section>
       </aside>
 
@@ -47,7 +49,13 @@
             <p id="messageText"></p>
             <pre id="messageDetails" hidden></pre>
           </div>
-          <button class="button secondary small" id="messageClose" type="button">Dismiss</button>
+          <button
+            class="button secondary small"
+            id="messageClose"
+            type="button"
+          >
+            Dismiss
+          </button>
         </section>
 
         <section class="workspace-page" id="datasetPage">
@@ -56,8 +64,9 @@
               <p class="eyebrow">Datasets Viewer</p>
               <h2>Load a speech dataset from a server path.</h2>
               <p>
-                Enter a Hugging Face `save_to_disk` folder or dataset directory, choose a row
-                limit, then inspect transcripts and audio in the table.
+                Enter a Hugging Face `save_to_disk` folder or dataset directory,
+                choose a row limit, then inspect transcripts and audio in the
+                table.
               </p>
             </div>
           </header>
@@ -78,9 +87,19 @@
               </label>
               <label>
                 <span>Max rows per split</span>
-                <input id="maxRowsInput" type="number" min="0" step="1" value="2000" />
+                <input
+                  id="maxRowsInput"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value="2000"
+                />
               </label>
-              <button class="button primary" id="loadDatasetButton" type="submit">
+              <button
+                class="button primary"
+                id="loadDatasetButton"
+                type="submit"
+              >
                 Load Dataset
               </button>
             </form>
@@ -106,12 +125,20 @@
               </button>
             </header>
 
-            <div class="stats-grid" id="statsGrid" aria-label="Dataset stats"></div>
+            <div
+              class="stats-grid"
+              id="statsGrid"
+              aria-label="Dataset stats"
+            ></div>
 
             <div class="toolbar">
               <label class="search-field">
                 <span>Search</span>
-                <input id="searchInput" type="search" placeholder="Text, speaker, path..." />
+                <input
+                  id="searchInput"
+                  type="search"
+                  placeholder="Text, speaker, path..."
+                />
               </label>
 
               <label>
@@ -144,10 +171,18 @@
             <details class="column-tools">
               <summary>Columns</summary>
               <div class="column-actions">
-                <button class="button subtle small" id="showAllColumns" type="button">
+                <button
+                  class="button subtle small"
+                  id="showAllColumns"
+                  type="button"
+                >
                   Show All
                 </button>
-                <button class="button subtle small" id="hideLongColumns" type="button">
+                <button
+                  class="button subtle small"
+                  id="hideLongColumns"
+                  type="button"
+                >
                   Compact Text
                 </button>
               </div>
@@ -162,9 +197,13 @@
             </div>
 
             <footer class="pagination">
-              <button class="button secondary" id="prevPage" type="button">Previous</button>
+              <button class="button secondary" id="prevPage" type="button">
+                Previous
+              </button>
               <span id="pageStatus">0 rows</span>
-              <button class="button secondary" id="nextPage" type="button">Next</button>
+              <button class="button secondary" id="nextPage" type="button">
+                Next
+              </button>
             </footer>
           </section>
         </section>
@@ -173,10 +212,12 @@
           <header class="page-header">
             <div>
               <p class="eyebrow">Darija Code-Switch Generator</p>
-              <h2>Generate mixed-script Darija, French, and English ASR data.</h2>
+              <h2>
+                Generate mixed-script Darija, French, and English ASR data.
+              </h2>
               <p>
-                Run a one-sample smoke test first, then launch a full text and OmniVoice audio
-                generation job with the parameters below.
+                Run a one-sample smoke test first, then launch a full text and
+                OmniVoice audio generation job with the parameters below.
               </p>
             </div>
           </header>
@@ -191,7 +232,7 @@
                 <input
                   id="smokeReferenceAudioInput"
                   type="text"
-                  value="data/reference_speakers/ref_darija_french.wav"
+                  value="/teamspace/studios/this_studio/ref_darija_french.wav"
                   autocomplete="off"
                 />
               </label>
@@ -206,11 +247,17 @@
               </label>
             </div>
             <div class="action-row">
-              <button class="button primary" id="syntheticTestButton" type="button">
+              <button
+                class="button primary"
+                id="syntheticTestButton"
+                type="button"
+              >
                 Run 1-Sample Test
               </button>
               <p class="hint">
-                Put the reference WAV at the path above, or use an absolute path. The test writes to `synthetic_cs_dataset/data/smoke_test/`.
+                Put the reference WAV at the path above, or use an absolute
+                path. The test writes to
+                `synthetic_cs_dataset/data/smoke_test/`.
               </p>
             </div>
             <div class="result-box" id="smokeResult" hidden></div>
@@ -232,23 +279,56 @@
               </label>
               <label>
                 <span>Number of texts</span>
-                <input id="generatorNumTextsInput" type="number" min="1" max="30000" step="1" value="10000" />
+                <input
+                  id="generatorNumTextsInput"
+                  type="number"
+                  min="1"
+                  max="30000"
+                  step="1"
+                  value="10000"
+                />
               </label>
               <label>
                 <span>Batch size</span>
-                <input id="generatorBatchSizeInput" type="number" min="1" max="100" step="1" value="40" />
+                <input
+                  id="generatorBatchSizeInput"
+                  type="number"
+                  min="1"
+                  max="100"
+                  step="1"
+                  value="40"
+                />
               </label>
               <label>
                 <span>Target hours</span>
-                <input id="generatorTargetHoursInput" type="number" min="0.01" max="100" step="0.25" value="12" />
+                <input
+                  id="generatorTargetHoursInput"
+                  type="number"
+                  min="0.01"
+                  max="100"
+                  step="0.25"
+                  value="12"
+                />
               </label>
               <label>
                 <span>Augmentation probability</span>
-                <input id="generatorAugProbInput" type="number" min="0" max="1" step="0.05" value="0.35" />
+                <input
+                  id="generatorAugProbInput"
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value="0.35"
+                />
               </label>
               <label class="wide-field">
                 <span>Output folder</span>
-                <input id="generatorOutputDirInput" type="text" value="data" autocomplete="off" />
+                <input
+                  id="generatorOutputDirInput"
+                  type="text"
+                  value="data"
+                  autocomplete="off"
+                />
               </label>
               <label class="wide-field">
                 <span>Reference speakers folder</span>
@@ -259,7 +339,11 @@
                   autocomplete="off"
                 />
               </label>
-              <button class="button primary" id="generateDatasetButton" type="submit">
+              <button
+                class="button primary"
+                id="generateDatasetButton"
+                type="submit"
+              >
                 Generate Dataset
               </button>
             </form>

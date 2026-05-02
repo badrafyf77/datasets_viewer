@@ -42,7 +42,7 @@ Then edit `.env`:
 LIGHTNING_API_KEY=...
 ```
 
-The text generator loads `synthetic_cs_dataset/.env` automatically. If you are using the web UI, restart `viewer_server.py` after changing `.env`. The text generator uses the model in `configs/generation.yaml`; the default is `openai/gpt-5`.
+The text generator loads `synthetic_cs_dataset/.env` automatically. If you are using the web UI, restart `viewer_server.py` after changing `.env`. The text generator uses the model in `configs/generation.yaml`; the default is `google/gemini-3.1-flash-lite-preview`.
 
 ## Configure
 

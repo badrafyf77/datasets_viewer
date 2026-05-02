@@ -10,3 +10,6 @@ __pycache__/
 *.pyc
 configs/runtime_generation_*.yaml
 configs/runtime_smoke_generation.yaml
+.env
+.env.*
+!.env.example

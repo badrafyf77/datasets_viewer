@@ -30,6 +30,7 @@ ARABIC_RE = re.compile(r"[\u0600-\u06FF]")
 LATIN_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ]")
 EMAIL_RE = re.compile(r"\b\S+@\S+\.\S+\b")
 LONG_NUMBER_RE = re.compile(r"(?:\+?\d[\s\-_.]*){6,}")
+DOTENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 EMOJI_RE = re.compile(
     "[\U0001F300-\U0001FAFF\U00002700-\U000027BF\U00002600-\U000026FF]",
     flags=re.UNICODE,
@@ -213,6 +214,30 @@ def load_config(path: Path) -> dict[str, Any]:
         return yaml.safe_load(handle)
 
 
+def load_dotenv(path: Path) -> None:
+    if not path.exists():
+        return
+
+    with path.open("r", encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[len("export ") :].strip()
+            if "=" not in line:
+                continue
+
+            key, value = line.split("=", 1)
+            key = key.strip()
+            if not DOTENV_KEY_RE.match(key):
+                continue
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+                value = value[1:-1]
+            os.environ.setdefault(key, value)
+
+
 def resolve_path(path_value: str | os.PathLike[str], base_dir: Path) -> Path:
     path = Path(path_value)
     if path.is_absolute():
@@ -387,7 +412,8 @@ def create_openai_client(text_config: dict[str, Any]):
     api_key = os.environ.get(api_key_env) or text_config.get("api_key")
     if not api_key:
         raise SystemExit(
-            f"Missing API key. Set `{api_key_env}` in your environment or add `api_key` to the config."
+            f"Missing API key. Add `{api_key_env}=...` to `synthetic_cs_dataset/.env` "
+            f"or export `{api_key_env}` in your environment."
         )
     return OpenAI(
         base_url=text_config.get("api_base_url"),
@@ -434,6 +460,21 @@ def request_batch(client: Any, text_config: dict[str, Any], prompt: str) -> str:
         request["max_tokens"] = int(text_config["max_tokens"])
     completion = client.chat.completions.create(**request)
     return completion.choices[0].message.content or ""
+
+
+def friendly_llm_error(exc: Exception, text_config: dict[str, Any]) -> str:
+    message = str(exc)
+    model = text_config.get("model", "<missing model>")
+    api_key_env = text_config.get("api_key_env", "LIGHTNING_API_KEY")
+    if "insufficient_balance" in message or "Error code: 402" in message:
+        return (
+            "Lightning returned 402 insufficient_balance for the configured LLM request. "
+            f"The pipeline is using model `{model}` and API key env `{api_key_env}`. "
+            "If a small manual request works with a different model, set `text_generation.model` "
+            "in the config to that model and restart `viewer_server.py` after updating `.env` "
+            f"or the `{api_key_env}` environment value."
+        )
+    return f"LLM request failed for model `{model}`: {message}"
 
 
 def target_counts(total: int, distribution: dict[str, float]) -> dict[str, int]:
@@ -510,6 +551,8 @@ def write_report(output_path: Path, report: dict[str, Any]) -> None:
 
 def main() -> None:
     args = parse_args()
+    project_dir = Path(__file__).resolve().parent.parent
+    load_dotenv(project_dir / ".env")
     config_path = args.config.resolve()
     base_dir = config_path.parent.parent
     config = load_config(config_path)
@@ -562,7 +605,7 @@ def main() -> None:
                 except Exception as exc:
                     reject_counts["api_error"] += 1
                     if attempt >= max_retries:
-                        raise RuntimeError(f"LLM request failed after {attempt} attempts: {exc}") from exc
+                        raise RuntimeError(friendly_llm_error(exc, text_config)) from exc
                     time.sleep(min(2 ** attempt, 20))
                     continue
                 candidates = parse_jsonl_response(content)

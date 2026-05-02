@@ -30,11 +30,19 @@ pip install openai pyyaml tqdm pandas soundfile librosa numpy datasets jsonlines
 
 For audio generation, also install your OmniVoice environment and make sure GPU/CUDA dependencies are available.
 
-Do not put API keys in the repo. Export your Lightning/OpenAI-compatible key:
+Do not put API keys in the repo. Create a local `.env` file for your Lightning/OpenAI-compatible key:
 
 ```bash
-export LIGHTNING_API_KEY="..."
+cp .env.example .env
 ```
+
+Then edit `.env`:
+
+```bash
+LIGHTNING_API_KEY=...
+```
+
+The text generator loads `synthetic_cs_dataset/.env` automatically. If you are using the web UI, restart `viewer_server.py` after changing `.env`. The text generator uses the model in `configs/generation.yaml`; the default is `openai/gpt-5`.
 
 ## Configure
 

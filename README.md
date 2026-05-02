@@ -54,8 +54,16 @@ For a full run, set the generation parameters and click **Generate Dataset**. Th
 Required before generation:
 
 ```bash
-export LIGHTNING_API_KEY="..."
+cp synthetic_cs_dataset/.env.example synthetic_cs_dataset/.env
 ```
+
+Then edit `synthetic_cs_dataset/.env`:
+
+```bash
+LIGHTNING_API_KEY=...
+```
+
+The generator loads `synthetic_cs_dataset/.env` automatically. If you change the key while the web UI is running, restart `viewer_server.py`.
 
 Also make sure OmniVoice, torch, and the Python packages in `synthetic_cs_dataset/requirements.txt` are installed in the environment running `viewer_server.py`.
 

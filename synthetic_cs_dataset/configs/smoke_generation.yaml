@@ -17,7 +17,7 @@ text_generation:
   provider: openai_compatible
   api_base_url: https://lightning.ai/api/v1/
   api_key_env: LIGHTNING_API_KEY
-  model: lightning-ai/deepseek-v4-pro
+  model: openai/gpt-5
   temperature: 0.9
   top_p: 0.95
   max_tokens: 1200

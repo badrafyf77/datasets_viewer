@@ -11,6 +11,7 @@ text_generation:
   prompt_path: prompts/text_generation_prompt.txt
   num_texts: 10000
   batch_size: 40
+  concurrent_requests: 4
   max_retries_per_batch: 5
   max_words: 25
   min_words: 3
@@ -68,8 +69,8 @@ audio_generation:
   default_reference_audio: ""
   default_reference_text: ""
 
-  duplicate_second_speaker_probability: 0.25
-  augmentation_probability: 0.35
+  duplicate_second_speaker_probability: 0.0
+  augmentation_probability: 0.0
   augmentation_suffix: phone
 
 splits:

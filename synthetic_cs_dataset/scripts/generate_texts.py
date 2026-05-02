@@ -11,6 +11,7 @@ import re
 import sys
 import time
 from collections import Counter
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -201,11 +202,24 @@ class QualityResult:
     reason: str = ""
 
 
+@dataclass(frozen=True)
+class BatchResult:
+    requested_mix: str
+    rows: list[dict[str, Any]]
+    reject_counts: Counter[str]
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=Path("configs/generation.yaml"))
     parser.add_argument("--num-texts", type=int, default=None, help="Override text_generation.num_texts.")
     parser.add_argument("--batch-size", type=int, default=None, help="Override text_generation.batch_size.")
+    parser.add_argument(
+        "--concurrent-requests",
+        type=int,
+        default=None,
+        help="Override text_generation.concurrent_requests for parallel LLM batches.",
+    )
     return parser.parse_args()
 
 
@@ -507,9 +521,8 @@ def choose_next_mix(current_counts: Counter[str], desired_counts: dict[str, int]
     return max(deficits, key=lambda key: (deficits[key], desired_counts[key]))
 
 
-def sanitize_row(
+def sanitize_candidate(
     row: dict[str, Any],
-    numeric_id: int,
     requested_mix: str,
     domains: list[str],
 ) -> dict[str, Any] | None:
@@ -529,12 +542,68 @@ def sanitize_row(
     language_mix = infer_language_mix(text, requested_mix)
     contains_code_switch = any(language in language_mix for language in ("french", "english"))
     return {
-        "id": f"cs_{numeric_id:06d}",
         "domain": domain,
         "text": text,
         "language_mix": language_mix,
         "contains_code_switch": contains_code_switch,
     }
+
+
+def sanitize_row(
+    row: dict[str, Any],
+    numeric_id: int,
+    requested_mix: str,
+    domains: list[str],
+) -> dict[str, Any] | None:
+    sanitized = sanitize_candidate(row, requested_mix, domains)
+    if sanitized is None:
+        return None
+    return {"id": f"cs_{numeric_id:06d}", **sanitized}
+
+
+def request_valid_batch(
+    client: Any,
+    text_config: dict[str, Any],
+    prompt: str,
+    requested_mix: str,
+    request_n: int,
+    domains: list[str],
+) -> BatchResult:
+    reject_counts: Counter[str] = Counter()
+    max_retries = int(text_config.get("max_retries_per_batch", 5))
+    for attempt in range(1, max_retries + 1):
+        try:
+            content = request_batch(client, text_config, prompt)
+        except Exception as exc:
+            reject_counts["api_error"] += 1
+            if attempt >= max_retries:
+                raise RuntimeError(friendly_llm_error(exc, text_config)) from exc
+            time.sleep(min(2 ** attempt, 20))
+            continue
+
+        accepted_rows: list[dict[str, Any]] = []
+        candidates = parse_jsonl_response(content)
+        for candidate in candidates:
+            if len(accepted_rows) >= request_n:
+                break
+            sanitized = sanitize_candidate(candidate, requested_mix, domains)
+            if sanitized is None:
+                reject_counts["invalid_row"] += 1
+                continue
+            quality = quality_check(sanitized["text"], requested_mix, text_config)
+            if not quality.ok:
+                reject_counts[quality.reason] += 1
+                continue
+            accepted_rows.append(sanitized)
+
+        if accepted_rows:
+            return BatchResult(requested_mix, accepted_rows, reject_counts)
+
+        time.sleep(min(2 ** attempt, 20))
+
+    raise RuntimeError(
+        f"No acceptable rows returned for mix {requested_mix}. Rejections: {dict(reject_counts)}"
+    )
 
 
 def append_rows(output_path: Path, rows: list[dict[str, Any]]) -> None:
@@ -565,6 +634,8 @@ def main() -> None:
         text_config["num_texts"] = args.num_texts
     if args.batch_size is not None:
         text_config["batch_size"] = args.batch_size
+    if args.concurrent_requests is not None:
+        text_config["concurrent_requests"] = args.concurrent_requests
 
     output_path = resolve_path(text_config["output_path"], base_dir)
     prompt_path = resolve_path(text_config["prompt_path"], base_dir)
@@ -572,6 +643,7 @@ def main() -> None:
     domains = list(text_config["domains"])
     total_target = int(text_config["num_texts"])
     batch_size = int(text_config.get("batch_size", 40))
+    concurrent_requests = max(1, int(text_config.get("concurrent_requests", 4)))
     max_words = int(text_config.get("max_words", 25))
     desired_counts = target_counts(total_target, text_config["language_mix_distribution"])
 
@@ -589,64 +661,119 @@ def main() -> None:
     reject_counts: Counter[str] = Counter()
     client = create_openai_client(text_config)
     progress = tqdm(total=total_target, initial=len(rows), desc="Accepted texts") if tqdm else None
+    empty_merge_results = 0
+
+    def planned_counts(pending_jobs: dict[Future[BatchResult], tuple[str, int]]) -> Counter[str]:
+        planned = Counter(current_counts)
+        for requested_mix, requested_n in pending_jobs.values():
+            planned[requested_mix] += requested_n
+        return planned
+
+    def schedule_batch(
+        executor: ThreadPoolExecutor,
+        pending_jobs: dict[Future[BatchResult], tuple[str, int]],
+    ) -> bool:
+        planned = planned_counts(pending_jobs)
+        total_pending = sum(requested_n for _requested_mix, requested_n in pending_jobs.values())
+        remaining_total = total_target - len(rows) - total_pending
+        if remaining_total <= 0:
+            return False
+
+        deficits = {
+            key: desired_counts[key] - planned.get(key, 0)
+            for key in desired_counts
+        }
+        positive_deficits = {key: value for key, value in deficits.items() if value > 0}
+        if not positive_deficits:
+            return False
+
+        requested_mix = max(
+            positive_deficits,
+            key=lambda key: (positive_deficits[key], desired_counts[key]),
+        )
+        request_n = min(batch_size, remaining_total, positive_deficits[requested_mix])
+        if request_n <= 0:
+            return False
+
+        prompt = build_prompt(
+            prompt_template,
+            request_n,
+            next_numeric_id + total_pending,
+            domains,
+            requested_mix,
+            max_words,
+        )
+        future = executor.submit(
+            request_valid_batch,
+            client,
+            text_config,
+            prompt,
+            requested_mix,
+            request_n,
+            domains,
+        )
+        pending_jobs[future] = (requested_mix, request_n)
+        return True
 
     try:
-        while len(rows) < total_target:
-            requested_mix = choose_next_mix(current_counts, desired_counts)
-            remaining_total = total_target - len(rows)
-            remaining_for_mix = max(desired_counts[requested_mix] - current_counts[requested_mix], 1)
-            request_n = min(batch_size, remaining_total, remaining_for_mix)
-            prompt = build_prompt(prompt_template, request_n, next_numeric_id, domains, requested_mix, max_words)
+        with ThreadPoolExecutor(max_workers=concurrent_requests) as executor:
+            pending_jobs: dict[Future[BatchResult], tuple[str, int]] = {}
+            while len(rows) < total_target:
+                while len(pending_jobs) < concurrent_requests and schedule_batch(executor, pending_jobs):
+                    pass
 
-            accepted_batch: list[dict[str, Any]] = []
-            max_retries = int(text_config.get("max_retries_per_batch", 5))
-            for attempt in range(1, max_retries + 1):
-                try:
-                    content = request_batch(client, text_config, prompt)
-                except Exception as exc:
-                    reject_counts["api_error"] += 1
-                    if attempt >= max_retries:
-                        raise RuntimeError(friendly_llm_error(exc, text_config)) from exc
-                    time.sleep(min(2 ** attempt, 20))
-                    continue
-                candidates = parse_jsonl_response(content)
-                for candidate in candidates:
-                    if len(rows) + len(accepted_batch) >= total_target:
-                        break
-                    sanitized = sanitize_row(candidate, next_numeric_id + len(accepted_batch), requested_mix, domains)
-                    if sanitized is None:
-                        reject_counts["invalid_row"] += 1
-                        continue
-                    quality = quality_check(sanitized["text"], requested_mix, text_config)
-                    if not quality.ok:
-                        reject_counts[quality.reason] += 1
-                        continue
-                    text_key = normalize_for_dedup(sanitized["text"])
-                    if text_key in seen_texts:
-                        reject_counts["duplicate_text"] += 1
-                        continue
-                    seen_texts.add(text_key)
-                    accepted_batch.append(sanitized)
+                if not pending_jobs:
+                    raise RuntimeError(
+                        f"No text generation work remained before reaching target. "
+                        f"Accepted {len(rows)}/{total_target}; counts: {dict(current_counts)}"
+                    )
 
-                if accepted_batch:
-                    break
-                sleep_seconds = min(2 ** attempt, 20)
-                time.sleep(sleep_seconds)
+                done, _not_done = wait(pending_jobs, return_when=FIRST_COMPLETED)
+                for future in done:
+                    pending_jobs.pop(future)
+                    result = future.result()
+                    reject_counts.update(result.reject_counts)
 
-            if not accepted_batch:
-                raise RuntimeError(
-                    f"No acceptable rows returned for mix {requested_mix}. Rejections: {dict(reject_counts)}"
-                )
+                    accepted_batch: list[dict[str, Any]] = []
+                    for candidate in result.rows:
+                        if len(rows) + len(accepted_batch) >= total_target:
+                            break
+                        actual_mix = mix_key(candidate)
+                        if current_counts[actual_mix] >= desired_counts.get(actual_mix, total_target):
+                            reject_counts["mix_quota_full"] += 1
+                            continue
+                        text_key = normalize_for_dedup(candidate["text"])
+                        if text_key in seen_texts:
+                            reject_counts["duplicate_text"] += 1
+                            continue
+                        seen_texts.add(text_key)
+                        accepted_batch.append(
+                            {"id": f"cs_{next_numeric_id + len(accepted_batch):06d}", **candidate}
+                        )
 
-            append_rows(output_path, accepted_batch)
-            rows.extend(accepted_batch)
-            for row in accepted_batch:
-                current_counts[mix_key(row)] += 1
-            next_numeric_id = len(rows) + 1
-            if progress:
-                progress.update(len(accepted_batch))
-            else:
-                print(f"Accepted {len(rows)}/{total_target}", file=sys.stderr)
+                    if not accepted_batch:
+                        empty_merge_results += 1
+                    else:
+                        empty_merge_results = 0
+                        append_rows(output_path, accepted_batch)
+                        rows.extend(accepted_batch)
+                        for row in accepted_batch:
+                            current_counts[mix_key(row)] += 1
+                        next_numeric_id = len(rows) + 1
+                        if progress:
+                            progress.update(len(accepted_batch))
+                        else:
+                            print(f"Accepted {len(rows)}/{total_target}", file=sys.stderr)
+
+                    max_empty_results = max(
+                        10,
+                        concurrent_requests * int(text_config.get("max_retries_per_batch", 5)) * 2,
+                    )
+                    if empty_merge_results >= max_empty_results:
+                        raise RuntimeError(
+                            "LLM batches kept returning rows that were already duplicates or outside quotas. "
+                            f"Accepted {len(rows)}/{total_target}; rejections: {dict(reject_counts)}"
+                        )
     finally:
         if progress:
             progress.close()
@@ -659,6 +786,7 @@ def main() -> None:
             "accepted": len(rows),
             "counts_by_mix": dict(current_counts),
             "reject_counts": dict(reject_counts),
+            "concurrent_requests": concurrent_requests,
         },
     )
     print(f"Wrote {len(rows)} rows to {output_path}")

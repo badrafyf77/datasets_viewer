@@ -49,7 +49,7 @@ synthetic_cs_dataset/data/smoke_test/
   audio/
 ```
 
-For a full run, set the generation parameters and click **Generate Dataset**. The page polls the backend and shows a progress bar for text generation and audio generation.
+For a full run, set the generation parameters and click **Generate Dataset**. The page polls the backend and shows a progress bar for text generation and audio generation. The default config now favors faster 5k-style runs: transcript batches run in parallel, and extra phone augmentation is off unless you raise its probability.
 
 Required before generation:
 

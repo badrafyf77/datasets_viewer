@@ -51,9 +51,11 @@ Edit `configs/generation.yaml`.
 Important fields:
 
 - `text_generation.num_texts`: default `10000`, set up to `30000`.
+- `text_generation.concurrent_requests`: default `4`, sends multiple transcript batches in parallel. Lower it to `1` if your provider rate-limits you.
 - `audio_generation.target_hours`: default `12.0`, suitable for the v1 target of 10-15 hours.
 - `audio_generation.reference_speakers_dir`: folder with 10-30 speaker references if available.
-- `audio_generation.augmentation_probability`: default `0.35`, applied only to train audio.
+- `audio_generation.augmentation_probability`: default `0.0` for faster runs; raise it when you want phone-style augmented train audio.
+- `audio_generation.duplicate_second_speaker_probability`: default `0.0` for faster runs; raise it when you want extra speaker versions of the same transcript.
 - `audio_generation.tts_model_name_or_path`: default `k2-fsa/OmniVoice`.
 
 Speaker references can be provided as either:
@@ -110,7 +112,7 @@ Open **Darija Code-Switch Generator** to run the one-sample test or start a full
 For a small smoke test:
 
 ```bash
-python scripts/generate_texts.py --config configs/generation.yaml --num-texts 100 --batch-size 10
+python scripts/generate_texts.py --config configs/generation.yaml --num-texts 100 --batch-size 10 --concurrent-requests 4
 python scripts/generate_audio.py --config configs/generation.yaml --limit 20 --target-hours 0.05
 ```
 
@@ -190,7 +192,7 @@ python scripts/make_hf_dataset.py --data_dir data_merged/
 
 ## Generation Design
 
-Stage 1 uses an OpenAI-compatible chat API. The prompt forces mixed-script output:
+Stage 1 uses an OpenAI-compatible chat API. Transcript batches are requested in parallel according to `text_generation.concurrent_requests`, then deduplicated and written from a single process so output IDs stay stable. The prompt forces mixed-script output:
 
 - Darija in Arabic script.
 - French and English in Latin script.
@@ -216,7 +218,7 @@ audio = model.generate(
 )
 ```
 
-The audio script distributes speaker references evenly, creates a second speaker version for about 25% of texts, trims silence, normalizes level, rejects bad files, and writes logs under `data/generation_logs/`.
+The audio script distributes speaker references evenly, trims silence, normalizes level, rejects bad files, and writes logs under `data/generation_logs/`. For faster 5k-style runs, second-speaker duplicates and phone augmentations are disabled by default; enable them in the config when you want more audio diversity.
 
 Phone-call augmentation is train-only and light:
 

@@ -513,7 +513,7 @@ def prepare_runtime_config(job_id: str, params: dict, site_root: Path, pipeline_
     augmentation_probability = float(
         params.get("augmentation_probability")
         if params.get("augmentation_probability") is not None
-        else audio_config.get("augmentation_probability", 0.35)
+        else audio_config.get("augmentation_probability", 0.0)
     )
     output_dir = str(params.get("output_dir") or audio_config.get("output_dir") or "data").strip()
     reference_dir = str(

@@ -227,25 +227,12 @@ def assign_splits(rows: list[dict[str, Any]], split_config: dict[str, float], se
     return assignments
 
 
-def postprocess_audio(path: Path, sample_rate: int) -> None:
-    audio, current_sr = sf.read(path, always_2d=False)
-    audio = to_mono(np.asarray(audio, dtype=np.float32))
-    if current_sr != sample_rate:
-        audio = librosa.resample(audio, orig_sr=current_sr, target_sr=sample_rate)
-    trimmed, _index = librosa.effects.trim(audio, top_db=35)
-    if trimmed.size:
-        audio = trimmed
-    audio = rms_normalize(peak_limit(audio), target_dbfs=-20.0)
-    sf.write(path, audio.astype(np.float32), sample_rate)
-
-
-def check_audio(path: Path, min_seconds: float, max_seconds: float) -> AudioCheck:
-    if not path.exists():
-        return AudioCheck(False, reason="missing_file")
-    try:
-        audio, sample_rate = sf.read(path, always_2d=False)
-    except Exception as exc:  # pragma: no cover - depends on corrupt file
-        return AudioCheck(False, reason=f"read_failed:{exc}")
+def check_audio_data(
+    audio: np.ndarray,
+    sample_rate: int,
+    min_seconds: float,
+    max_seconds: float,
+) -> AudioCheck:
     audio = to_mono(np.asarray(audio, dtype=np.float32))
     duration = float(len(audio) / sample_rate) if sample_rate else 0.0
     if duration < min_seconds:
@@ -260,6 +247,34 @@ def check_audio(path: Path, min_seconds: float, max_seconds: float) -> AudioChec
     if clipped_fraction > 0.001:
         return AudioCheck(False, duration, "clipped")
     return AudioCheck(True, duration)
+
+
+def postprocess_audio(
+    path: Path,
+    sample_rate: int,
+    min_seconds: float,
+    max_seconds: float,
+) -> AudioCheck:
+    audio, current_sr = sf.read(path, always_2d=False)
+    audio = to_mono(np.asarray(audio, dtype=np.float32))
+    if current_sr != sample_rate:
+        audio = librosa.resample(audio, orig_sr=current_sr, target_sr=sample_rate)
+    trimmed, _index = librosa.effects.trim(audio, top_db=35)
+    if trimmed.size:
+        audio = trimmed
+    audio = rms_normalize(peak_limit(audio), target_dbfs=-20.0)
+    sf.write(path, audio.astype(np.float32), sample_rate)
+    return check_audio_data(audio, sample_rate, min_seconds, max_seconds)
+
+
+def check_audio(path: Path, min_seconds: float, max_seconds: float) -> AudioCheck:
+    if not path.exists():
+        return AudioCheck(False, reason="missing_file")
+    try:
+        audio, sample_rate = sf.read(path, always_2d=False)
+    except Exception as exc:  # pragma: no cover - depends on corrupt file
+        return AudioCheck(False, reason=f"read_failed:{exc}")
+    return check_audio_data(audio, sample_rate, min_seconds, max_seconds)
 
 
 def metadata_row(
@@ -406,8 +421,8 @@ def main() -> None:
     min_seconds = float(audio_config.get("min_duration_seconds", 1.0))
     max_seconds = float(audio_config.get("max_duration_seconds", 25.0))
     target_seconds = float(audio_config.get("target_hours", 12.0)) * 3600.0
-    duplicate_probability = float(audio_config.get("duplicate_second_speaker_probability", 0.25))
-    augmentation_probability = float(audio_config.get("augmentation_probability", 0.35))
+    duplicate_probability = float(audio_config.get("duplicate_second_speaker_probability", 0.0))
+    augmentation_probability = float(audio_config.get("augmentation_probability", 0.0))
     augmentation_suffix = str(audio_config.get("augmentation_suffix", "phone"))
     source = str(audio_config.get("source_label", "synthetic_tts"))
     real_test_metadata = str(config.get("splits", {}).get("real_human_test_metadata") or "").strip()
@@ -440,8 +455,7 @@ def main() -> None:
 
             try:
                 tts.synthesize(row["text"], str(ref.audio_path), ref.ref_text, output_path)
-                postprocess_audio(output_path, sample_rate)
-                check = check_audio(output_path, min_seconds, max_seconds)
+                check = postprocess_audio(output_path, sample_rate, min_seconds, max_seconds)
             except Exception as exc:  # pragma: no cover - backend runtime failures
                 write_log(
                     log_path,
@@ -503,7 +517,7 @@ def main() -> None:
                 audio, sr = sf.read(output_path, always_2d=False)
                 augmented = augment_phone_call(audio, sr, seed=rng.randint(0, 2**31 - 1))
                 sf.write(aug_path, augmented, sr)
-                aug_check = check_audio(aug_path, min_seconds, max_seconds)
+                aug_check = check_audio_data(augmented, sr, min_seconds, max_seconds)
                 if aug_check.ok:
                     metadata_rows.append(metadata_row(row, aug_relative, f"{source}_phone_aug", ref.speaker_id))
                     dataset_rows.append(

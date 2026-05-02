@@ -139,6 +139,47 @@ file_name,text,source,domain,language_mix,speaker_id,is_synthetic
 
 `dataset.jsonl` contains the same core fields plus split, duration, augmentation flags, and `is_temporary_synthetic_test` for synthetic test rows.
 
+## Multiple Batches
+
+Do not generate a second batch into the same output folder. IDs restart at `cs_000001`, so audio and metadata can be overwritten.
+
+After your first 5000-sample run, keep it:
+
+```bash
+cd synthetic_cs_dataset
+mv data data_batch_01
+mkdir -p data/reference_speakers
+cp data_batch_01/reference_speakers/* data/reference_speakers/ 2>/dev/null || true
+```
+
+Then generate the next 5000 samples with a different output folder, for example from the web UI:
+
+```text
+Output folder: data_batch_02
+Reference speakers folder: data/reference_speakers
+```
+
+Merge the two batches:
+
+```bash
+python scripts/merge_batches.py \
+  --output data_merged \
+  --batches data_batch_01 data_batch_02
+```
+
+If you intentionally want only one audio row per exact transcript, add:
+
+```bash
+--dedupe-text
+```
+
+Then validate and create the Hugging Face dataset:
+
+```bash
+python scripts/validate_dataset.py --data_dir data_merged/
+python scripts/make_hf_dataset.py --data_dir data_merged/
+```
+
 ## Generation Design
 
 Stage 1 uses an OpenAI-compatible chat API. The prompt forces mixed-script output:

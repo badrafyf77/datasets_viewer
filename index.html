@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Moroccan ASR Dataset Studio</title>
-    <link rel="stylesheet" href="./styles.css?v=studio2" />
+    <link rel="stylesheet" href="./styles.css?v=studio3" />
   </head>
   <body>
     <div class="app-shell">
@@ -359,12 +359,97 @@
               <p class="hint" id="generationProgressDetails">No job running.</p>
             </div>
           </section>
+
+          <section class="panel form-panel">
+            <div class="panel-heading">
+              <h2>Merge HF Datasets</h2>
+            </div>
+            <form class="form-grid hf-merge-form" id="hfMergeForm">
+              <label class="wide-field">
+                <span>HF dataset paths</span>
+                <textarea
+                  id="hfDatasetPathsInput"
+                  rows="5"
+                  autocomplete="off"
+                >synthetic_cs_dataset/data_batch_01/hf_dataset
+synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
+              </label>
+              <label class="wide-field">
+                <span>Merged output folder</span>
+                <input
+                  id="hfMergeOutputInput"
+                  type="text"
+                  value="synthetic_cs_dataset/data_merged/hf_dataset"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="checkbox-field">
+                <input id="hfOverwriteInput" type="checkbox" />
+                <span>Overwrite output</span>
+              </label>
+              <button class="button primary" id="mergeHfDatasetsButton" type="submit">
+                Merge HF Datasets
+              </button>
+            </form>
+
+            <div class="progress-card" id="hfMergeProgressCard" hidden>
+              <div class="progress-header">
+                <strong id="hfMergeProgressLabel">Waiting</strong>
+                <span id="hfMergeProgressPercent">0%</span>
+              </div>
+              <div class="progress-track" aria-label="HF dataset merge progress">
+                <div class="progress-fill" id="hfMergeProgressFill"></div>
+              </div>
+              <p class="hint" id="hfMergeProgressDetails">No merge running.</p>
+            </div>
+
+            <div class="publish-panel" id="hfPushPanel" hidden>
+              <div class="panel-heading">
+                <h2>Push To Hugging Face</h2>
+              </div>
+              <form class="form-grid hf-push-form" id="hfPushForm">
+                <label class="wide-field">
+                  <span>Merged dataset path</span>
+                  <input id="hfPushDatasetPathInput" type="text" readonly />
+                </label>
+                <label class="wide-field">
+                  <span>Dataset repo id</span>
+                  <input
+                    id="hfRepoIdInput"
+                    type="text"
+                    placeholder="username/darija-code-switch-asr"
+                    autocomplete="off"
+                  />
+                </label>
+                <label class="checkbox-field">
+                  <input id="hfPrivateRepoInput" type="checkbox" checked />
+                  <span>Private repo</span>
+                </label>
+                <button class="button primary" id="pushHfDatasetButton" type="submit">
+                  Push To Hugging Face
+                </button>
+              </form>
+              <p class="hint">
+                Uses HF_TOKEN, HUGGINGFACE_TOKEN, or an existing Hugging Face CLI login on the server.
+              </p>
+              <div class="progress-card" id="hfPushProgressCard" hidden>
+                <div class="progress-header">
+                  <strong id="hfPushProgressLabel">Waiting</strong>
+                  <span id="hfPushProgressPercent">0%</span>
+                </div>
+                <div class="progress-track" aria-label="Hugging Face push progress">
+                  <div class="progress-fill" id="hfPushProgressFill"></div>
+                </div>
+                <p class="hint" id="hfPushProgressDetails">No push running.</p>
+              </div>
+            </div>
+          </section>
         </section>
       </main>
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="./app.js?v=studio2"></script>
+    <script src="./app.js?v=studio3"></script>
   </body>
 </html>

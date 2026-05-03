@@ -190,6 +190,8 @@ python scripts/validate_dataset.py --data_dir data_merged/
 python scripts/make_hf_dataset.py --data_dir data_merged/
 ```
 
+You can also merge already-created `hf_dataset/` folders from the web UI. Open **Darija Code-Switch Generator**, put one `hf_dataset` path per line in **Merge HF Datasets**, choose an output folder, and run the merge. If you open the site through a cloud forwarded port, enter paths from the cloud machine running `viewer_server.py`, not paths from your laptop. After the merge finishes, the UI shows a **Push To Hugging Face** button; set `HF_TOKEN`/`HUGGINGFACE_TOKEN` or run `huggingface-cli login` in that same server environment first.
+
 ## Generation Design
 
 Stage 1 uses an OpenAI-compatible chat API. Transcript batches are requested in parallel according to `text_generation.concurrent_requests`, then deduplicated and written from a single process so output IDs stay stable. The prompt forces mixed-script output:

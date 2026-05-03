@@ -30,8 +30,14 @@ const state = {
   activePage: "viewer",
   serverAvailable: false,
   syntheticTestAvailable: false,
+  hfDatasetToolsAvailable: false,
   generationJobId: null,
   generationPollTimer: null,
+  hfMergeJobId: null,
+  hfMergePollTimer: null,
+  hfPushJobId: null,
+  hfPushPollTimer: null,
+  mergedHfDatasetPath: "",
 };
 
 const els = {
@@ -97,6 +103,27 @@ const els = {
   generationProgressPercent: document.getElementById("generationProgressPercent"),
   generationProgressFill: document.getElementById("generationProgressFill"),
   generationProgressDetails: document.getElementById("generationProgressDetails"),
+  hfMergeForm: document.getElementById("hfMergeForm"),
+  hfDatasetPathsInput: document.getElementById("hfDatasetPathsInput"),
+  hfMergeOutputInput: document.getElementById("hfMergeOutputInput"),
+  hfOverwriteInput: document.getElementById("hfOverwriteInput"),
+  mergeHfDatasetsButton: document.getElementById("mergeHfDatasetsButton"),
+  hfMergeProgressCard: document.getElementById("hfMergeProgressCard"),
+  hfMergeProgressLabel: document.getElementById("hfMergeProgressLabel"),
+  hfMergeProgressPercent: document.getElementById("hfMergeProgressPercent"),
+  hfMergeProgressFill: document.getElementById("hfMergeProgressFill"),
+  hfMergeProgressDetails: document.getElementById("hfMergeProgressDetails"),
+  hfPushPanel: document.getElementById("hfPushPanel"),
+  hfPushForm: document.getElementById("hfPushForm"),
+  hfPushDatasetPathInput: document.getElementById("hfPushDatasetPathInput"),
+  hfRepoIdInput: document.getElementById("hfRepoIdInput"),
+  hfPrivateRepoInput: document.getElementById("hfPrivateRepoInput"),
+  pushHfDatasetButton: document.getElementById("pushHfDatasetButton"),
+  hfPushProgressCard: document.getElementById("hfPushProgressCard"),
+  hfPushProgressLabel: document.getElementById("hfPushProgressLabel"),
+  hfPushProgressPercent: document.getElementById("hfPushProgressPercent"),
+  hfPushProgressFill: document.getElementById("hfPushProgressFill"),
+  hfPushProgressDetails: document.getElementById("hfPushProgressDetails"),
   toast: document.getElementById("toast"),
 };
 
@@ -244,10 +271,10 @@ async function detectServerFeatures() {
     const response = await fetch("./api/server-info", { cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const payload = await response.json();
+    const features = Array.isArray(payload.features) ? payload.features : [];
     state.serverAvailable = true;
-    state.syntheticTestAvailable = Array.isArray(payload.features)
-      ? payload.features.includes("synthetic-test")
-      : false;
+    state.syntheticTestAvailable = features.includes("synthetic-test");
+    state.hfDatasetToolsAvailable = features.includes("hf-dataset-merge") && features.includes("hf-dataset-push");
     if (payload.default_dataset_path && els.datasetPathInput) {
       els.datasetPathInput.value = payload.default_dataset_path;
     }
@@ -260,6 +287,7 @@ async function detectServerFeatures() {
   } catch {
     state.serverAvailable = false;
     state.syntheticTestAvailable = false;
+    state.hfDatasetToolsAvailable = false;
     if (els.serverInfoText) {
       els.serverInfoText.textContent = "Static mode. Use viewer_server.py to load server paths or generate audio.";
     }
@@ -282,6 +310,18 @@ async function detectServerFeatures() {
     els.generateDatasetButton.disabled = !state.syntheticTestAvailable;
     els.generateDatasetButton.title = state.syntheticTestAvailable
       ? "Start full generation."
+      : "Requires python3 viewer_server.py.";
+  }
+  if (els.mergeHfDatasetsButton) {
+    els.mergeHfDatasetsButton.disabled = !state.hfDatasetToolsAvailable;
+    els.mergeHfDatasetsButton.title = state.hfDatasetToolsAvailable
+      ? "Merge saved Hugging Face dataset folders."
+      : "Requires python3 viewer_server.py.";
+  }
+  if (els.pushHfDatasetButton) {
+    els.pushHfDatasetButton.disabled = !state.hfDatasetToolsAvailable || !state.mergedHfDatasetPath;
+    els.pushHfDatasetButton.title = state.hfDatasetToolsAvailable
+      ? "Push the merged dataset to Hugging Face."
       : "Requires python3 viewer_server.py.";
   }
 }
@@ -484,6 +524,239 @@ async function pollGenerationStatus() {
     els.generateDatasetButton.disabled = false;
     els.generateDatasetButton.textContent = "Generate Dataset";
     showError("Could not read generation status", error);
+  }
+}
+
+function datasetPathsFromText(value = "") {
+  return String(value)
+    .split(/\r?\n/)
+    .map((path) => path.trim().replace(/^["']|["']$/g, ""))
+    .filter(Boolean);
+}
+
+function hfMergeParamsFromForm() {
+  return {
+    dataset_paths: datasetPathsFromText(els.hfDatasetPathsInput?.value || ""),
+    output_path: els.hfMergeOutputInput?.value.trim() || "",
+    overwrite: Boolean(els.hfOverwriteInput?.checked),
+  };
+}
+
+function setProgressElements(elements, status = {}) {
+  if (!elements.card) return;
+  const percent = Math.max(0, Math.min(100, Number(status.percent || 0)));
+  elements.card.hidden = false;
+  elements.fill.style.width = `${percent}%`;
+  elements.percent.textContent = `${Math.round(percent)}%`;
+  elements.label.textContent = status.stage || status.status || "Working";
+  elements.details.textContent = status.message || "Waiting for job status...";
+}
+
+function setHfMergeProgress(status = {}) {
+  setProgressElements(
+    {
+      card: els.hfMergeProgressCard,
+      fill: els.hfMergeProgressFill,
+      percent: els.hfMergeProgressPercent,
+      label: els.hfMergeProgressLabel,
+      details: els.hfMergeProgressDetails,
+    },
+    status,
+  );
+}
+
+function setHfPushProgress(status = {}) {
+  setProgressElements(
+    {
+      card: els.hfPushProgressCard,
+      fill: els.hfPushProgressFill,
+      percent: els.hfPushProgressPercent,
+      label: els.hfPushProgressLabel,
+      details: els.hfPushProgressDetails,
+    },
+    status,
+  );
+}
+
+function formatRowsBySplit(rowsBySplit = {}) {
+  const entries = Object.entries(rowsBySplit);
+  if (!entries.length) return "";
+  return entries.map(([split, rows]) => `${split}: ${formatNumber(rows)}`).join(", ");
+}
+
+async function startHfDatasetMerge(event) {
+  event.preventDefault();
+  clearMessage();
+  if (!state.hfDatasetToolsAvailable) {
+    showError(
+      "HF merge unavailable",
+      "Merging Hugging Face datasets needs the Python backend.",
+      "Start the app with `python3 viewer_server.py --host 0.0.0.0 --port 8000`.",
+    );
+    return;
+  }
+
+  const params = hfMergeParamsFromForm();
+  if (params.dataset_paths.length < 2) {
+    showError("Missing HF dataset paths", "Enter at least two `hf_dataset` folders, one per line.");
+    return;
+  }
+  if (!params.output_path) {
+    showError("Missing output folder", "Choose where the merged Hugging Face dataset should be saved.");
+    return;
+  }
+
+  window.clearInterval(state.hfMergePollTimer);
+  window.clearInterval(state.hfPushPollTimer);
+  state.hfMergeJobId = null;
+  state.hfPushJobId = null;
+  state.mergedHfDatasetPath = "";
+  if (els.hfPushPanel) els.hfPushPanel.hidden = true;
+  if (els.pushHfDatasetButton) els.pushHfDatasetButton.disabled = true;
+  if (els.hfPushProgressCard) els.hfPushProgressCard.hidden = true;
+
+  els.mergeHfDatasetsButton.disabled = true;
+  els.mergeHfDatasetsButton.textContent = "Merging...";
+  setHfMergeProgress({ percent: 1, stage: "Starting", message: "Preparing the merge job..." });
+
+  try {
+    const response = await fetch("./api/hf/merge/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    state.hfMergeJobId = payload.job_id;
+    pollHfMergeStatus();
+    state.hfMergePollTimer = window.setInterval(pollHfMergeStatus, 1500);
+  } catch (error) {
+    els.mergeHfDatasetsButton.disabled = false;
+    els.mergeHfDatasetsButton.textContent = "Merge HF Datasets";
+    showError("Could not start HF merge", error);
+  }
+}
+
+async function pollHfMergeStatus() {
+  if (!state.hfMergeJobId) return;
+  try {
+    const response = await fetch(`./api/hf/status?id=${encodeURIComponent(state.hfMergeJobId)}`, {
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    setHfMergeProgress(payload.job);
+
+    if (payload.job.status === "completed") {
+      window.clearInterval(state.hfMergePollTimer);
+      els.mergeHfDatasetsButton.disabled = false;
+      els.mergeHfDatasetsButton.textContent = "Merge HF Datasets";
+      const result = payload.job.result || {};
+      const outputPath = result.output_path || els.hfMergeOutputInput.value.trim();
+      state.mergedHfDatasetPath = outputPath;
+      if (els.hfPushPanel) els.hfPushPanel.hidden = false;
+      if (els.hfPushDatasetPathInput) els.hfPushDatasetPathInput.value = outputPath;
+      if (els.pushHfDatasetButton) els.pushHfDatasetButton.disabled = !state.hfDatasetToolsAvailable;
+      const splitSummary = formatRowsBySplit(result.rows_by_split);
+      showMessage(
+        "success",
+        "HF datasets merged",
+        splitSummary ? `${payload.job.message}. Splits: ${splitSummary}.` : payload.job.message,
+      );
+    } else if (payload.job.status === "failed") {
+      window.clearInterval(state.hfMergePollTimer);
+      els.mergeHfDatasetsButton.disabled = false;
+      els.mergeHfDatasetsButton.textContent = "Merge HF Datasets";
+      showError("HF dataset merge failed", payload.job.error || "The merge job failed.", payload.job.log_tail || "");
+    }
+  } catch (error) {
+    window.clearInterval(state.hfMergePollTimer);
+    els.mergeHfDatasetsButton.disabled = false;
+    els.mergeHfDatasetsButton.textContent = "Merge HF Datasets";
+    showError("Could not read HF merge status", error);
+  }
+}
+
+function hfPushParamsFromForm() {
+  return {
+    dataset_path: els.hfPushDatasetPathInput?.value.trim() || state.mergedHfDatasetPath,
+    repo_id: els.hfRepoIdInput?.value.trim() || "",
+    private: Boolean(els.hfPrivateRepoInput?.checked),
+  };
+}
+
+async function startHfDatasetPush(event) {
+  event.preventDefault();
+  clearMessage();
+  if (!state.hfDatasetToolsAvailable) {
+    showError(
+      "HF push unavailable",
+      "Pushing to Hugging Face needs the Python backend.",
+      "Start the app with `python3 viewer_server.py --host 0.0.0.0 --port 8000`.",
+    );
+    return;
+  }
+
+  const params = hfPushParamsFromForm();
+  if (!params.dataset_path) {
+    showError("Missing merged dataset", "Merge the Hugging Face datasets first.");
+    return;
+  }
+  if (!params.repo_id || /\s/.test(params.repo_id)) {
+    showError("Invalid repo id", "Enter a Hugging Face dataset repo id like `username/darija-code-switch-asr`.");
+    return;
+  }
+
+  window.clearInterval(state.hfPushPollTimer);
+  els.pushHfDatasetButton.disabled = true;
+  els.pushHfDatasetButton.textContent = "Pushing...";
+  setHfPushProgress({ percent: 1, stage: "Starting", message: "Preparing the Hugging Face push..." });
+
+  try {
+    const response = await fetch("./api/hf/push/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    state.hfPushJobId = payload.job_id;
+    pollHfPushStatus();
+    state.hfPushPollTimer = window.setInterval(pollHfPushStatus, 2500);
+  } catch (error) {
+    els.pushHfDatasetButton.disabled = false;
+    els.pushHfDatasetButton.textContent = "Push To Hugging Face";
+    showError("Could not start Hugging Face push", error);
+  }
+}
+
+async function pollHfPushStatus() {
+  if (!state.hfPushJobId) return;
+  try {
+    const response = await fetch(`./api/hf/status?id=${encodeURIComponent(state.hfPushJobId)}`, {
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    setHfPushProgress(payload.job);
+
+    if (payload.job.status === "completed") {
+      window.clearInterval(state.hfPushPollTimer);
+      els.pushHfDatasetButton.disabled = false;
+      els.pushHfDatasetButton.textContent = "Push To Hugging Face";
+      const result = payload.job.result || {};
+      showMessage("success", "Pushed to Hugging Face", payload.job.message || "Dataset pushed.", result.repo_url || "");
+    } else if (payload.job.status === "failed") {
+      window.clearInterval(state.hfPushPollTimer);
+      els.pushHfDatasetButton.disabled = false;
+      els.pushHfDatasetButton.textContent = "Push To Hugging Face";
+      showError("Hugging Face push failed", payload.job.error || "The push job failed.", payload.job.log_tail || "");
+    }
+  } catch (error) {
+    window.clearInterval(state.hfPushPollTimer);
+    els.pushHfDatasetButton.disabled = false;
+    els.pushHfDatasetButton.textContent = "Push To Hugging Face";
+    showError("Could not read Hugging Face push status", error);
   }
 }
 
@@ -1414,6 +1687,8 @@ function bindEvents() {
   on(els.messageClose, "click", clearMessage);
   on(els.datasetLoadForm, "submit", loadDatasetFromForm);
   on(els.generatorForm, "submit", startGeneration);
+  on(els.hfMergeForm, "submit", startHfDatasetMerge);
+  on(els.hfPushForm, "submit", startHfDatasetPush);
   on(els.syntheticTestButton, "click", runSyntheticTest);
 
   on(els.fileInput, "change", (event) => handleFiles(event.target.files));

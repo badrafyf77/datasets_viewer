@@ -42,7 +42,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -409,7 +410,8 @@ button {
 }
 
 input,
-select {
+select,
+textarea {
   min-height: 38px;
   width: 100%;
   border: 1px solid var(--line-strong);
@@ -419,12 +421,47 @@ select {
   padding: 0 10px;
 }
 
+textarea {
+  min-height: 118px;
+  padding: 10px;
+  resize: vertical;
+}
+
 input:focus,
 select:focus,
+textarea:focus,
 button:focus-visible,
 summary:focus-visible {
   outline: 3px solid rgba(8, 127, 117, 0.22);
   outline-offset: 2px;
+}
+
+.checkbox-field {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 8px;
+}
+
+.checkbox-field input {
+  width: 18px;
+  min-height: auto;
+  height: 18px;
+  accent-color: var(--teal);
+}
+
+.checkbox-field span {
+  color: var(--ink);
+  font-size: 0.9rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.publish-panel {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
 }
 
 .result-box {

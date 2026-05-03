@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Moroccan ASR Dataset Studio</title>
-    <link rel="stylesheet" href="./styles.css?v=studio3" />
+    <link rel="stylesheet" href="./styles.css?v=studio4" />
   </head>
   <body>
     <div class="app-shell">
@@ -130,6 +130,68 @@
               id="statsGrid"
               aria-label="Dataset stats"
             ></div>
+
+            <div class="insights-grid">
+              <section class="panel facet-panel">
+                <div class="panel-heading">
+                  <h2>Exact Filters</h2>
+                  <button
+                    class="button subtle small"
+                    id="clearExactFilters"
+                    type="button"
+                  >
+                    Clear
+                  </button>
+                </div>
+                <div class="facet-controls">
+                  <label>
+                    <span>Column</span>
+                    <select id="facetColumn"></select>
+                  </label>
+                  <label>
+                    <span>Values</span>
+                    <select id="facetMode">
+                      <option value="exact">Exact cell</option>
+                      <option value="token">Items in cell</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Find</span>
+                    <input
+                      id="facetSearch"
+                      type="search"
+                      placeholder="Filter values..."
+                    />
+                  </label>
+                </div>
+                <div class="active-filters" id="activeFilters"></div>
+                <div class="facet-value-list" id="facetValueList"></div>
+              </section>
+
+              <section class="panel distribution-panel">
+                <div class="panel-heading">
+                  <h2>Distribution</h2>
+                </div>
+                <div class="distribution-controls">
+                  <label>
+                    <span>Column</span>
+                    <select id="distributionColumn"></select>
+                  </label>
+                  <label>
+                    <span>Metric</span>
+                    <select id="distributionMetric">
+                      <option value="count">Rows</option>
+                      <option value="hours">Hours</option>
+                    </select>
+                  </label>
+                </div>
+                <div
+                  class="distribution-chart"
+                  id="distributionChart"
+                  aria-live="polite"
+                ></div>
+              </section>
+            </div>
 
             <div class="toolbar">
               <label class="search-field">
@@ -468,6 +530,6 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="./app.js?v=studio3"></script>
+    <script src="./app.js?v=studio4"></script>
   </body>
 </html>

@@ -15,6 +15,10 @@ const AUDIO_NAME_RE =
 const AUDIO_PATH_RE = /\.(wav|mp3|m4a|ogg|oga|aac|flac|webm)(\?.*)?$/i;
 const LONG_TEXT_RE =
   /(text|sentence|transcript|transcription|translation|normalized|clean|raw|comment|notes|prompt|darija|arabic|english|francais|french)/i;
+const DURATION_NAME_RE =
+  /(^|[._-])(duration|duration_seconds|duration_s|duration_ms|seconds|secs|length_seconds|audio_duration|audio_length)([._-]|$)/i;
+const MULTI_VALUE_RE = /\s*(?:\||;|,)\s*/;
+const EMPTY_FACET_KEY = "__empty__";
 
 const state = {
   datasets: [],
@@ -24,6 +28,12 @@ const state = {
   search: "",
   audioFilter: "all",
   focusedColumn: "",
+  facetColumn: "",
+  facetMode: "exact",
+  facetSearch: "",
+  exactFilters: new Map(),
+  distributionColumn: "",
+  distributionMetric: "count",
   pageSize: 50,
   page: 1,
   sort: { column: null, direction: "asc" },
@@ -78,6 +88,15 @@ const els = {
   pageSizeSelect: document.getElementById("pageSizeSelect"),
   audioFilter: document.getElementById("audioFilter"),
   columnFocus: document.getElementById("columnFocus"),
+  facetColumn: document.getElementById("facetColumn"),
+  facetMode: document.getElementById("facetMode"),
+  facetSearch: document.getElementById("facetSearch"),
+  activeFilters: document.getElementById("activeFilters"),
+  facetValueList: document.getElementById("facetValueList"),
+  clearExactFilters: document.getElementById("clearExactFilters"),
+  distributionColumn: document.getElementById("distributionColumn"),
+  distributionMetric: document.getElementById("distributionMetric"),
+  distributionChart: document.getElementById("distributionChart"),
   columnToggles: document.getElementById("columnToggles"),
   showAllColumns: document.getElementById("showAllColumns"),
   hideLongColumns: document.getElementById("hideLongColumns"),
@@ -249,6 +268,8 @@ async function loadServerDataset({ silent = false, path = "", maxRows = 0 } = {}
         source: "server",
         baseDir: "",
         records: entry.records || [],
+        totalRows: Number(entry.rows || 0),
+        shownRows: Number(entry.shownRows || (entry.records || []).length),
         isFinal: Boolean(entry.final) || isFinalDataset(entry.path || payload.path || ""),
       });
     }
@@ -1239,6 +1260,8 @@ function addDataset(dataset) {
     })),
     columns: orderedColumns,
     visibleColumns,
+    totalRows: Number(dataset.totalRows || preparedRecords.length),
+    shownRows: Number(dataset.shownRows || preparedRecords.length),
   };
 
   annotateAudio(nextDataset);
@@ -1460,13 +1483,18 @@ function renderDatasetList() {
 
     const meta = document.createElement("span");
     meta.className = "dataset-meta";
-    meta.textContent = `${formatNumber(dataset.records.length)} rows - ${dataset.path}`;
+    const rowLabel =
+      dataset.totalRows && dataset.totalRows > dataset.records.length
+        ? `${formatNumber(dataset.records.length)} of ${formatNumber(dataset.totalRows)} rows`
+        : `${formatNumber(dataset.records.length)} rows`;
+    meta.textContent = `${rowLabel} - ${dataset.path}`;
     button.append(meta);
     els.datasetList.append(button);
   }
 }
 
 function renderViewer(dataset) {
+  ensureViewerDefaults(dataset);
   els.datasetKind.textContent = dataset.isFinal ? "Final Dataset" : "Dataset";
   els.datasetTitle.textContent = dataset.name;
   els.datasetSubtitle.textContent = dataset.path;
@@ -1478,32 +1506,452 @@ function renderViewer(dataset) {
   const pageRows = filteredRows.slice(start, start + state.pageSize);
 
   renderStats(dataset, filteredRows.length);
+  renderInsights(dataset, filteredRows);
   renderColumnControls(dataset);
   renderTable(dataset, pageRows);
   renderPagination(filteredRows.length, start, pageRows.length, totalPages);
 }
 
-function renderStats(dataset, filteredCount) {
-  const missing = Math.max(dataset.audioCandidates - dataset.audioLinked, 0);
-  const stats = [
-    ["Rows", dataset.records.length],
-    ["Visible", filteredCount],
-    ["Columns", dataset.columns.length],
-    ["Playable Audio", dataset.audioLinked],
-  ];
+function ensureViewerDefaults(dataset) {
+  pruneUnavailableFilters(dataset);
 
-  if (dataset.audioCandidates) stats.push(["Missing Audio", missing]);
+  if (!dataset.columns.includes(state.focusedColumn)) state.focusedColumn = "";
+
+  const preferredFacet = preferredCategoricalColumn(dataset);
+  if (!dataset.columns.includes(state.facetColumn)) {
+    state.facetColumn = preferredFacet || dataset.columns[0] || "";
+  }
+  if (!dataset.columns.includes(state.distributionColumn)) {
+    state.distributionColumn = state.facetColumn || preferredFacet || dataset.columns[0] || "";
+  }
+}
+
+function pruneUnavailableFilters(dataset) {
+  for (const column of Array.from(state.exactFilters.keys())) {
+    if (!dataset.columns.includes(column)) state.exactFilters.delete(column);
+  }
+}
+
+function preferredCategoricalColumn(dataset) {
+  const preferredNames = [
+    "language_mix",
+    "split",
+    "_split",
+    "source",
+    "domain",
+    "speaker_id",
+    "gender",
+    "accent",
+    "is_synthetic",
+  ];
+  for (const name of preferredNames) {
+    const match = dataset.columns.find((column) => column.toLowerCase() === name);
+    if (match) return match;
+  }
+  return categoricalColumns(dataset)[0] || dataset.columns[0] || "";
+}
+
+function categoricalColumns(dataset) {
+  const sampleRows = dataset.records.slice(0, 500);
+  return dataset.columns.filter((column) => {
+    if (LONG_TEXT_RE.test(column) && !/language|mix|source|domain|split/i.test(column)) return false;
+    const values = new Set();
+    for (const row of sampleRows) {
+      values.add(facetKeyForValue(row[column], "exact"));
+      if (values.size > 80) return false;
+    }
+    return values.size > 0;
+  });
+}
+
+function renderStats(dataset, filteredCount) {
+  const durationColumn = findDurationColumn(dataset);
+  const totalSeconds = durationColumn ? sumDurationSeconds(dataset.records, durationColumn) : 0;
+  const filteredRows = filteredCount === dataset.records.length ? dataset.records : getFilteredRows(dataset, { includeSort: false });
+  const filteredSeconds = durationColumn ? sumDurationSeconds(filteredRows, durationColumn) : 0;
+  const missing = Math.max(dataset.audioCandidates - dataset.audioLinked, 0);
+  const diskRows = Number(dataset.totalRows || dataset.records.length);
+  const stats = [];
+
+  stats.push({ label: diskRows > dataset.records.length ? "Rows Loaded" : "Rows", value: formatNumber(dataset.records.length) });
+  if (diskRows > dataset.records.length) stats.push({ label: "Rows In Split", value: formatNumber(diskRows) });
+  stats.push({ label: "Visible", value: formatNumber(filteredCount) });
+  stats.push({ label: "Columns", value: formatNumber(dataset.columns.length) });
+  stats.push({ label: "Playable Audio", value: formatNumber(dataset.audioLinked) });
+  if (dataset.audioCandidates) stats.push({ label: "Missing Audio", value: formatNumber(missing) });
+  if (durationColumn) {
+    stats.push({ label: "Total Hours", value: formatHours(totalSeconds) });
+    if (filteredCount !== dataset.records.length) stats.push({ label: "Visible Hours", value: formatHours(filteredSeconds) });
+    if (dataset.records.length) stats.push({ label: "Avg Duration", value: formatDuration(totalSeconds / dataset.records.length) });
+  }
 
   els.statsGrid.innerHTML = "";
-  for (const [label, value] of stats.slice(0, 5)) {
+  for (const { label, value } of stats.slice(0, 8)) {
     const stat = document.createElement("div");
     stat.className = "stat";
     stat.innerHTML = `
-      <span class="stat-value">${formatNumber(value)}</span>
+      <span class="stat-value">${value}</span>
       <span class="stat-label">${label}</span>
     `;
     els.statsGrid.append(stat);
   }
+}
+
+function renderInsights(dataset, filteredRows) {
+  renderFacetControls(dataset);
+  renderActiveFilters(dataset);
+  renderFacetValues(dataset);
+  renderDistributionControls(dataset);
+  renderDistributionChart(dataset, filteredRows);
+}
+
+function renderFacetControls(dataset) {
+  if (!els.facetColumn || !els.facetMode || !els.facetSearch) return;
+  fillColumnSelect(els.facetColumn, dataset.columns, state.facetColumn);
+  els.facetMode.value = state.facetMode;
+  els.facetSearch.value = state.facetSearch;
+}
+
+function renderActiveFilters(dataset) {
+  if (!els.activeFilters || !els.clearExactFilters) return;
+  els.activeFilters.innerHTML = "";
+  const active = activeColumnFilters(dataset);
+  els.clearExactFilters.disabled = active.length === 0;
+
+  if (!active.length) {
+    const empty = document.createElement("span");
+    empty.className = "filter-empty";
+    empty.textContent = "No filters";
+    els.activeFilters.append(empty);
+    return;
+  }
+
+  for (const [column, filter] of active) {
+    for (const key of filter.values) {
+      const chip = document.createElement("button");
+      chip.className = "filter-chip";
+      chip.type = "button";
+      chip.title = `Remove ${column}`;
+      chip.textContent = `${column}: ${displayFacetKey(key)}`;
+      chip.addEventListener("click", () => {
+        removeExactFilter(column, key);
+        state.page = 1;
+        render();
+      });
+      els.activeFilters.append(chip);
+    }
+  }
+}
+
+function renderFacetValues(dataset) {
+  if (!els.facetValueList) return;
+  els.facetValueList.innerHTML = "";
+  const column = state.facetColumn;
+  if (!column) return;
+
+  const current = getColumnFilter(column);
+  const rows = getFilteredRows(dataset, {
+    includeSort: false,
+    skipColumnFilter: column,
+  });
+  const buckets = valueBuckets(rows, column, state.facetMode, findDurationColumn(dataset));
+  const query = state.facetSearch.trim().toLowerCase();
+  const visibleBuckets = buckets
+    .filter((bucket) => !query || bucket.label.toLowerCase().includes(query))
+    .slice(0, 80);
+
+  if (!visibleBuckets.length) {
+    const empty = document.createElement("p");
+    empty.className = "dataset-empty";
+    empty.textContent = "No values";
+    els.facetValueList.append(empty);
+    return;
+  }
+
+  for (const bucket of visibleBuckets) {
+    const label = document.createElement("label");
+    label.className = "facet-value";
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = current.values.has(bucket.key);
+    checkbox.addEventListener("change", () => {
+      setExactFilterValue(column, bucket.key, checkbox.checked, state.facetMode);
+      state.page = 1;
+      render();
+    });
+
+    const value = document.createElement("span");
+    value.className = "facet-label";
+    value.textContent = bucket.label;
+    value.title = bucket.label;
+
+    const count = document.createElement("span");
+    count.className = "facet-count";
+    count.textContent = formatNumber(bucket.count);
+
+    label.append(checkbox, value, count);
+    els.facetValueList.append(label);
+  }
+}
+
+function renderDistributionControls(dataset) {
+  if (!els.distributionColumn || !els.distributionMetric) return;
+  fillColumnSelect(els.distributionColumn, dataset.columns, state.distributionColumn);
+  els.distributionMetric.value = state.distributionMetric;
+  els.distributionMetric.disabled = !findDurationColumn(dataset);
+  if (els.distributionMetric.disabled && state.distributionMetric === "hours") {
+    state.distributionMetric = "count";
+    els.distributionMetric.value = "count";
+  }
+}
+
+function renderDistributionChart(dataset, filteredRows) {
+  if (!els.distributionChart) return;
+  els.distributionChart.innerHTML = "";
+  const column = state.distributionColumn;
+  if (!column) return;
+
+  const durationColumn = findDurationColumn(dataset);
+  const metric = durationColumn ? state.distributionMetric : "count";
+  const buckets = valueBuckets(filteredRows, column, "exact", durationColumn);
+  const ranked = buckets
+    .map((bucket) => ({
+      ...bucket,
+      metricValue: metric === "hours" ? bucket.seconds / 3600 : bucket.count,
+    }))
+    .filter((bucket) => bucket.metricValue > 0)
+    .sort((a, b) => b.metricValue - a.metricValue || a.label.localeCompare(b.label))
+    .slice(0, 20);
+
+  if (!ranked.length) {
+    const empty = document.createElement("p");
+    empty.className = "dataset-empty";
+    empty.textContent = "No distribution";
+    els.distributionChart.append(empty);
+    return;
+  }
+
+  const maxValue = Math.max(...ranked.map((bucket) => bucket.metricValue), 1);
+  for (const bucket of ranked) {
+    const row = document.createElement("div");
+    row.className = "bar-row";
+
+    const label = document.createElement("span");
+    label.className = "bar-label";
+    label.title = bucket.label;
+    label.textContent = bucket.label;
+
+    const track = document.createElement("span");
+    track.className = "bar-track";
+    const fill = document.createElement("span");
+    fill.className = "bar-fill";
+    fill.style.width = `${Math.max(3, (bucket.metricValue / maxValue) * 100)}%`;
+    track.append(fill);
+
+    const value = document.createElement("span");
+    value.className = "bar-value";
+    value.textContent = metric === "hours" ? formatHours(bucket.seconds) : formatNumber(bucket.count);
+
+    row.append(label, track, value);
+    els.distributionChart.append(row);
+  }
+}
+
+function fillColumnSelect(select, columns, selected) {
+  const previous = selected || select.value;
+  select.innerHTML = "";
+  for (const column of columns) {
+    const option = document.createElement("option");
+    option.value = column;
+    option.textContent = column;
+    select.append(option);
+  }
+  select.value = columns.includes(previous) ? previous : columns[0] || "";
+}
+
+function activeColumnFilters(dataset) {
+  return Array.from(state.exactFilters.entries()).filter(
+    ([column, filter]) => dataset.columns.includes(column) && filter.values.size,
+  );
+}
+
+function getColumnFilter(column) {
+  return state.exactFilters.get(column) || { mode: state.facetMode, values: new Set() };
+}
+
+function setExactFilterValue(column, key, checked, mode) {
+  const existing = state.exactFilters.get(column);
+  const filter =
+    existing && existing.mode === mode
+      ? existing
+      : {
+          mode,
+          values: new Set(),
+        };
+
+  if (checked) filter.values.add(key);
+  else filter.values.delete(key);
+
+  if (filter.values.size) state.exactFilters.set(column, filter);
+  else state.exactFilters.delete(column);
+}
+
+function removeExactFilter(column, key) {
+  const filter = state.exactFilters.get(column);
+  if (!filter) return;
+  filter.values.delete(key);
+  if (!filter.values.size) state.exactFilters.delete(column);
+}
+
+function clearExactFilters() {
+  state.exactFilters.clear();
+  state.facetSearch = "";
+  state.page = 1;
+  render();
+}
+
+function valueBuckets(rows, column, mode, durationColumn = "") {
+  const buckets = new Map();
+  for (const row of rows) {
+    const keys = facetKeysForValue(row[column], mode);
+    const duration = durationColumn ? durationSeconds(row[durationColumn], durationColumn) : 0;
+    for (const key of keys) {
+      if (!buckets.has(key)) {
+        buckets.set(key, {
+          key,
+          label: displayFacetKey(key),
+          count: 0,
+          seconds: 0,
+        });
+      }
+      const bucket = buckets.get(key);
+      bucket.count += 1;
+      bucket.seconds += duration;
+    }
+  }
+  return Array.from(buckets.values()).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+}
+
+function facetKeysForValue(value, mode) {
+  if (mode === "token") {
+    const tokens = splitFacetTokens(value).map(facetKeyForScalar).filter(Boolean);
+    return Array.from(new Set(tokens.length ? tokens : [EMPTY_FACET_KEY]));
+  }
+  return [facetKeyForValue(value, "exact")];
+}
+
+function facetKeyForValue(value, mode = "exact") {
+  if (mode === "token") return facetKeysForValue(value, mode)[0] || EMPTY_FACET_KEY;
+  if (value === undefined || value === null || value === "") return EMPTY_FACET_KEY;
+  if (Array.isArray(value)) {
+    const parts = value.map(valueToString).map((item) => item.trim()).filter(Boolean);
+    return parts.length ? parts.join(" | ") : EMPTY_FACET_KEY;
+  }
+  if (typeof value === "object") return valueToString(value) || EMPTY_FACET_KEY;
+  const stringValue = String(value).trim();
+  return stringValue || EMPTY_FACET_KEY;
+}
+
+function facetKeyForScalar(value) {
+  const stringValue = valueToString(value).trim();
+  return stringValue || EMPTY_FACET_KEY;
+}
+
+function splitFacetTokens(value) {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => splitFacetTokens(item));
+  }
+  if (value && typeof value === "object") return [valueToString(value)];
+  return String(value ?? "")
+    .split(MULTI_VALUE_RE)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function displayFacetKey(key) {
+  return key === EMPTY_FACET_KEY ? "(blank)" : key;
+}
+
+function rowMatchesExactFilters(row, dataset, skipColumn = "") {
+  for (const [column, filter] of activeColumnFilters(dataset)) {
+    if (column === skipColumn) continue;
+    const rowKeys = new Set(facetKeysForValue(row[column], filter.mode));
+    let matched = false;
+    for (const key of filter.values) {
+      if (rowKeys.has(key)) {
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) return false;
+  }
+  return true;
+}
+
+function findDurationColumn(dataset) {
+  const exact = dataset.columns.find((column) => /^duration_seconds$/i.test(column));
+  if (exact) return exact;
+
+  const named = dataset.columns.find((column) => DURATION_NAME_RE.test(column) && columnHasNumericDuration(dataset, column));
+  if (named) return named;
+
+  return dataset.columns.find((column) => columnHasNumericDuration(dataset, column) && /duration|seconds|length/i.test(column)) || "";
+}
+
+function columnHasNumericDuration(dataset, column) {
+  let numeric = 0;
+  let checked = 0;
+  for (const row of dataset.records.slice(0, 200)) {
+    const value = row[column];
+    if (value === undefined || value === null || value === "") continue;
+    checked += 1;
+    if (durationSeconds(value, column) > 0) numeric += 1;
+  }
+  return checked > 0 && numeric / checked >= 0.75;
+}
+
+function sumDurationSeconds(rows, column) {
+  return rows.reduce((sum, row) => sum + durationSeconds(row[column], column), 0);
+}
+
+function durationSeconds(value, column = "") {
+  if (value === undefined || value === null || value === "") return 0;
+  if (typeof value === "number") return durationUnitSeconds(value, column);
+  const text = String(value).trim();
+  if (!text) return 0;
+
+  const colon = text.match(/^(\d+):([0-5]?\d)(?::([0-5]?\d(?:\.\d+)?))?$/);
+  if (colon) {
+    const first = Number(colon[1]);
+    const second = Number(colon[2]);
+    const third = colon[3] === undefined ? null : Number(colon[3]);
+    return third === null ? first * 60 + second : first * 3600 + second * 60 + third;
+  }
+
+  const number = Number(text.replace(/,/g, ""));
+  if (Number.isNaN(number)) return 0;
+  return durationUnitSeconds(number, column);
+}
+
+function durationUnitSeconds(value, column = "") {
+  const lower = column.toLowerCase();
+  if (/(^|[._-])(ms|millis|milliseconds)([._-]|$)/.test(lower)) return value / 1000;
+  if (/(^|[._-])(min|mins|minutes)([._-]|$)/.test(lower)) return value * 60;
+  if (/(^|[._-])(hour|hours|hrs)([._-]|$)/.test(lower)) return value * 3600;
+  return value;
+}
+
+function formatHours(seconds) {
+  const hours = seconds / 3600;
+  return hours >= 10 ? hours.toFixed(1) : hours.toFixed(2);
+}
+
+function formatDuration(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "0s";
+  if (seconds >= 3600) return `${formatHours(seconds)}h`;
+  if (seconds >= 60) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+  return `${seconds.toFixed(seconds >= 10 ? 1 : 2)}s`;
 }
 
 function renderColumnControls(dataset) {
@@ -1544,7 +1992,8 @@ function visibleColumns(dataset) {
   return dataset.columns.filter((column) => dataset.visibleColumns.has(column));
 }
 
-function getFilteredRows(dataset) {
+function getFilteredRows(dataset, options = {}) {
+  const { includeSort = true, skipColumnFilter = "" } = options;
   const query = state.search.trim().toLowerCase();
   const focusedColumn = state.focusedColumn;
   const columns = focusedColumn ? [focusedColumn] : dataset.columns;
@@ -1554,11 +2003,12 @@ function getFilteredRows(dataset) {
     if (state.audioFilter === "missing" && (!row.__audioInfo?.path || row.__audioInfo?.src)) {
       return false;
     }
+    if (!rowMatchesExactFilters(row, dataset, skipColumnFilter)) return false;
     if (!query) return true;
     return columns.some((column) => valueToString(row[column]).toLowerCase().includes(query));
   });
 
-  if (state.sort.column) {
+  if (includeSort && state.sort.column) {
     const direction = state.sort.direction === "desc" ? -1 : 1;
     rows = [...rows].sort((a, b) => compareValues(a[state.sort.column], b[state.sort.column]) * direction);
   }
@@ -1836,6 +2286,39 @@ function bindEvents() {
   on(els.searchInput, "input", (event) => {
     state.search = event.target.value;
     state.page = 1;
+    render();
+  });
+
+  on(els.facetColumn, "change", (event) => {
+    state.facetColumn = event.target.value;
+    const filter = state.exactFilters.get(state.facetColumn);
+    if (filter) state.facetMode = filter.mode;
+    state.facetSearch = "";
+    state.page = 1;
+    render();
+  });
+
+  on(els.facetMode, "change", (event) => {
+    state.facetMode = event.target.value;
+    if (state.facetColumn) state.exactFilters.delete(state.facetColumn);
+    state.page = 1;
+    render();
+  });
+
+  on(els.facetSearch, "input", (event) => {
+    state.facetSearch = event.target.value;
+    render();
+  });
+
+  on(els.clearExactFilters, "click", clearExactFilters);
+
+  on(els.distributionColumn, "change", (event) => {
+    state.distributionColumn = event.target.value;
+    render();
+  });
+
+  on(els.distributionMetric, "change", (event) => {
+    state.distributionMetric = event.target.value;
     render();
   });
 

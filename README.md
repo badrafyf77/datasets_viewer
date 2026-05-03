@@ -33,7 +33,7 @@ Open **Datasets Viewer**, set:
 
 Then click **Load Dataset**.
 
-The viewer supports Hugging Face `save_to_disk` datasets and DatasetDict folders through the Python server. It shows split tables, row stats, search, column controls, pagination, and inline audio when audio paths are available.
+The viewer supports Hugging Face `save_to_disk` datasets and DatasetDict folders through the Python server. It shows split tables, row stats, exact-value filters for columns such as `language_mix`, searchable value lists, distribution bars, total/visible hours when a duration column is present, column controls, pagination, export, and inline audio when audio paths are available.
 
 ## Darija Code-Switch Generator
 

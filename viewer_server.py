@@ -92,6 +92,9 @@ class DatasetViewerHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/hf/status":
             self.send_hf_dataset_status(parsed.query)
             return
+        if parsed.path == "/api/hf/columns":
+            self.send_hf_dataset_columns(parsed.query)
+            return
         if parsed.path == "/api/audio":
             self.send_audio(parsed.query)
             return
@@ -401,6 +404,23 @@ class DatasetViewerHandler(SimpleHTTPRequestHandler):
             return
         self.send_json({"ok": True, "job": public_job(job)})
 
+    def send_hf_dataset_columns(self, query: str) -> None:
+        params = parse_qs(query)
+        path_value = params.get("path", [""])[0].strip()
+        if not path_value:
+            self.send_error_json(HTTPStatus.BAD_REQUEST, "Missing Hugging Face dataset path.")
+            return
+
+        pipeline_dir = self.site_root / "synthetic_cs_dataset"
+        try:
+            path = resolve_hf_dataset_path(unquote(path_value), self.site_root, pipeline_dir, must_exist=True)
+            if not path.exists():
+                raise RuntimeError(f"Hugging Face dataset path was not found: {path}")
+            split_map = load_hf_dataset_splits(path)
+            self.send_json({"ok": True, "path": str(path), **hf_columns_payload(split_map)})
+        except Exception as exc:
+            self.send_error_json(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
+
     def read_json_body(self) -> dict:
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -570,6 +590,24 @@ def collect_dataset_path_values(value) -> list[str]:
     return paths
 
 
+def collect_column_values(value) -> list[str]:
+    if isinstance(value, str):
+        candidates = value.replace(",", "\n").splitlines()
+    elif isinstance(value, list):
+        candidates = value
+    else:
+        candidates = []
+
+    columns = []
+    seen = set()
+    for candidate in candidates:
+        column = str(candidate or "").strip().strip("\"'")
+        if column and column not in seen:
+            seen.add(column)
+            columns.append(column)
+    return columns
+
+
 def resolve_hf_dataset_path(path_value: str, site_root: Path, pipeline_dir: Path, must_exist: bool) -> Path:
     raw = Path(str(path_value or "").strip()).expanduser()
     if raw.is_absolute():
@@ -595,6 +633,97 @@ def load_hf_dataset_splits(path: Path) -> dict[str, object]:
     if isinstance(loaded, Dataset):
         return {"train": loaded}
     raise RuntimeError(f"Unsupported Hugging Face dataset type at {path}")
+
+
+def hf_columns_payload(split_map: dict[str, object]) -> dict:
+    columns_by_split = {
+        split: list(getattr(dataset, "column_names", []) or [])
+        for split, dataset in split_map.items()
+    }
+    row_counts = {split: len(dataset) for split, dataset in split_map.items()}
+    if not columns_by_split:
+        return {"columns": [], "columns_by_split": {}, "rows_by_split": {}}
+
+    ordered_common = list(next(iter(columns_by_split.values())))
+    for columns in list(columns_by_split.values())[1:]:
+        allowed = set(columns)
+        ordered_common = [column for column in ordered_common if column in allowed]
+
+    return {
+        "columns": ordered_common,
+        "columns_by_split": columns_by_split,
+        "rows_by_split": row_counts,
+    }
+
+
+def filter_dataset_columns(loaded, selected_columns: list[str]):
+    if not selected_columns:
+        return loaded
+
+    try:
+        from datasets import Dataset, DatasetDict
+    except ImportError as exc:
+        raise RuntimeError("Install the `datasets` package before filtering columns.") from exc
+
+    if isinstance(loaded, Dataset):
+        missing = [column for column in selected_columns if column not in loaded.column_names]
+        if missing:
+            raise RuntimeError(f"Selected column(s) not found: {', '.join(missing)}")
+        remove_columns = [column for column in loaded.column_names if column not in selected_columns]
+        return loaded.remove_columns(remove_columns) if remove_columns else loaded
+
+    if isinstance(loaded, DatasetDict):
+        filtered = DatasetDict()
+        missing_by_split = {}
+        for split, dataset in loaded.items():
+            missing = [column for column in selected_columns if column not in dataset.column_names]
+            if missing:
+                missing_by_split[split] = missing
+                continue
+            remove_columns = [column for column in dataset.column_names if column not in selected_columns]
+            filtered[split] = dataset.remove_columns(remove_columns) if remove_columns else dataset
+        if missing_by_split:
+            details = "; ".join(f"{split}: {', '.join(columns)}" for split, columns in missing_by_split.items())
+            raise RuntimeError(f"Selected column(s) are missing from some splits: {details}")
+        return filtered
+
+    raise RuntimeError("Unsupported Hugging Face dataset type.")
+
+
+def loaded_columns_by_split(loaded) -> dict[str, list[str]]:
+    try:
+        from datasets import Dataset, DatasetDict
+    except ImportError as exc:
+        raise RuntimeError("Install the `datasets` package before reading columns.") from exc
+
+    if isinstance(loaded, Dataset):
+        return {"train": list(loaded.column_names)}
+    if isinstance(loaded, DatasetDict):
+        return {split: list(dataset.column_names) for split, dataset in loaded.items()}
+    return {}
+
+
+def read_simple_env_token(env_path: Path) -> str:
+    if not env_path.exists():
+        return ""
+    with env_path.open("r", encoding="utf-8", errors="ignore") as handle:
+        for line in handle:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key, value = stripped.split("=", 1)
+            if key.strip() in {"HF_TOKEN", "HUGGINGFACE_TOKEN"}:
+                return value.strip().strip("\"'")
+    return ""
+
+
+def get_hf_token(site_root: Path) -> str:
+    return (
+        os.environ.get("HF_TOKEN")
+        or os.environ.get("HUGGINGFACE_TOKEN")
+        or read_simple_env_token(site_root / "synthetic_cs_dataset" / ".env")
+        or read_simple_env_token(site_root / ".env")
+    )
 
 
 def guarded_remove_output(path: Path, site_root: Path, pipeline_dir: Path) -> None:
@@ -659,6 +788,7 @@ def run_hf_dataset_merge_job(job_id: str, params: dict, site_root: Path) -> None
         split_names = sorted({split for _, split_map in loaded_sources for split in split_map})
         merged = DatasetDict()
         merged_rows: dict[str, int] = {}
+        merged_columns: dict[str, list[str]] = {}
 
         for index, split_name in enumerate(split_names):
             update_hf_dataset_job(
@@ -676,6 +806,7 @@ def run_hf_dataset_merge_job(job_id: str, params: dict, site_root: Path) -> None
                 ) from exc
             merged[split_name] = merged_split
             merged_rows[split_name] = len(merged_split)
+            merged_columns[split_name] = list(merged_split.column_names)
 
         if len(merged) == 0:
             raise RuntimeError("No splits were found in the provided Hugging Face datasets.")
@@ -685,7 +816,12 @@ def run_hf_dataset_merge_job(job_id: str, params: dict, site_root: Path) -> None
             stage="Saving",
             percent=82,
             message=f"Saving merged dataset to {output_path}",
-            result={"output_path": str(output_path), "source_rows": source_rows, "rows_by_split": merged_rows},
+            result={
+                "output_path": str(output_path),
+                "source_rows": source_rows,
+                "rows_by_split": merged_rows,
+                "columns_by_split": merged_columns,
+            },
         )
         if output_path.exists():
             if not overwrite:
@@ -702,7 +838,12 @@ def run_hf_dataset_merge_job(job_id: str, params: dict, site_root: Path) -> None
             stage="Completed",
             percent=100,
             message=f"Merged {total_rows} row(s) into {output_path}",
-            result={"output_path": str(output_path), "source_rows": source_rows, "rows_by_split": merged_rows},
+            result={
+                "output_path": str(output_path),
+                "source_rows": source_rows,
+                "rows_by_split": merged_rows,
+                "columns_by_split": merged_columns,
+            },
         )
     except Exception as exc:
         update_hf_dataset_job(
@@ -721,15 +862,16 @@ def run_hf_dataset_push_job(job_id: str, params: dict, site_root: Path) -> None:
     try:
         dataset_value = str(params.get("dataset_path") or "").strip()
         repo_id = str(params.get("repo_id") or "").strip()
+        selected_columns = collect_column_values(params.get("columns"))
         private = bool(params.get("private"))
         if not dataset_value:
-            raise RuntimeError("Missing merged Hugging Face dataset path.")
+            raise RuntimeError("Missing Hugging Face dataset path.")
         if not repo_id:
             raise RuntimeError("Enter a Hugging Face dataset repo id, for example `username/darija-asr`.")
 
         dataset_path = resolve_hf_dataset_path(dataset_value, site_root, pipeline_dir, must_exist=True)
         if not dataset_path.exists():
-            raise RuntimeError(f"Merged Hugging Face dataset path was not found: {dataset_path}")
+            raise RuntimeError(f"Hugging Face dataset path was not found: {dataset_path}")
 
         update_hf_dataset_job(
             job_id,
@@ -747,8 +889,17 @@ def run_hf_dataset_push_job(job_id: str, params: dict, site_root: Path) -> None:
         if not isinstance(loaded, (Dataset, DatasetDict)):
             raise RuntimeError(f"Unsupported Hugging Face dataset type at {dataset_path}")
 
+        if selected_columns:
+            update_hf_dataset_job(
+                job_id,
+                stage="Filtering columns",
+                percent=22,
+                message=f"Keeping {len(selected_columns)} selected column(s): {', '.join(selected_columns)}",
+            )
+            loaded = filter_dataset_columns(loaded, selected_columns)
+
         row_count = len(loaded) if isinstance(loaded, Dataset) else sum(len(dataset) for dataset in loaded.values())
-        token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
+        token = get_hf_token(site_root)
         kwargs = {"repo_id": repo_id, "private": private}
         if token:
             kwargs["token"] = token
@@ -758,7 +909,12 @@ def run_hf_dataset_push_job(job_id: str, params: dict, site_root: Path) -> None:
             stage="Pushing",
             percent=35,
             message=f"Pushing {row_count} row(s) to {repo_id}.",
-            result={"dataset_path": str(dataset_path), "repo_id": repo_id},
+            result={
+                "dataset_path": str(dataset_path),
+                "repo_id": repo_id,
+                "columns_by_split": loaded_columns_by_split(loaded),
+                "selected_columns": selected_columns,
+            },
         )
         loaded.push_to_hub(**kwargs)
         repo_url = f"https://huggingface.co/datasets/{repo_id}"
@@ -768,13 +924,23 @@ def run_hf_dataset_push_job(job_id: str, params: dict, site_root: Path) -> None:
             stage="Completed",
             percent=100,
             message=f"Pushed dataset to {repo_url}",
-            result={"dataset_path": str(dataset_path), "repo_id": repo_id, "repo_url": repo_url, "rows": row_count},
+            result={
+                "dataset_path": str(dataset_path),
+                "repo_id": repo_id,
+                "repo_url": repo_url,
+                "rows": row_count,
+                "columns_by_split": loaded_columns_by_split(loaded),
+                "selected_columns": selected_columns,
+            },
         )
     except Exception as exc:
         hint = ""
         text = str(exc)
         if "401" in text or "Unauthorized" in text or "token" in text.lower():
-            hint = "\nSet HF_TOKEN or HUGGINGFACE_TOKEN in the environment running viewer_server.py, or run `huggingface-cli login` there."
+            hint = (
+                "\nSet HF_TOKEN or HUGGINGFACE_TOKEN in the environment running viewer_server.py, "
+                "add HF_TOKEN to synthetic_cs_dataset/.env, or run `huggingface-cli login` there."
+            )
         update_hf_dataset_job(
             job_id,
             status="failed",

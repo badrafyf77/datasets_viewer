@@ -51,15 +51,29 @@ synthetic_cs_dataset/data/smoke_test/
 
 For a full run, set the generation parameters and click **Generate Dataset**. The page polls the backend and shows a progress bar for text generation and audio generation. The default config now favors faster 5k-style runs: transcript batches run in parallel, and extra phone augmentation is off unless you raise its probability.
 
-After creating multiple `hf_dataset/` folders, use **Merge HF Datasets** on the same page. Put one `save_to_disk` folder path per line, choose the merged output folder, then click **Merge HF Datasets**. When the merge completes, the page reveals **Push To Hugging Face**. If you open the site from your laptop through a cloud forwarded port, these paths are still paths on the cloud machine running `viewer_server.py`.
+After creating multiple `hf_dataset/` folders, use **Merge HF Datasets** on the same page. Put one `save_to_disk` folder path per line, choose the merged output folder, then click **Merge HF Datasets**. If you open the site from your laptop through a cloud forwarded port, these paths are still paths on the cloud machine running `viewer_server.py`.
 
-Before pushing, authenticate the Python server environment with either:
+The **Push To Hugging Face** form can push any server-side `hf_dataset` path. Click **Load Columns** to choose which columns to upload; leaving the columns field empty pushes all columns.
+
+Before pushing, put your token in the cloud/server environment. The easiest project-local option is:
+
+```bash
+cp synthetic_cs_dataset/.env.example synthetic_cs_dataset/.env
+```
+
+Then edit `synthetic_cs_dataset/.env`:
+
+```bash
+HF_TOKEN=hf_...
+```
+
+You can also export it before starting `viewer_server.py`:
 
 ```bash
 export HF_TOKEN=...
 ```
 
-or:
+Or authenticate the same cloud environment with:
 
 ```bash
 huggingface-cli login

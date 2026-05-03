@@ -190,7 +190,17 @@ python scripts/validate_dataset.py --data_dir data_merged/
 python scripts/make_hf_dataset.py --data_dir data_merged/
 ```
 
-You can also merge already-created `hf_dataset/` folders from the web UI. Open **Darija Code-Switch Generator**, put one `hf_dataset` path per line in **Merge HF Datasets**, choose an output folder, and run the merge. If you open the site through a cloud forwarded port, enter paths from the cloud machine running `viewer_server.py`, not paths from your laptop. After the merge finishes, the UI shows a **Push To Hugging Face** button; set `HF_TOKEN`/`HUGGINGFACE_TOKEN` or run `huggingface-cli login` in that same server environment first.
+You can also merge already-created `hf_dataset/` folders from the web UI. Open **Darija Code-Switch Generator**, put one `hf_dataset` path per line in **Merge HF Datasets**, choose an output folder, and run the merge. If you open the site through a cloud forwarded port, enter paths from the cloud machine running `viewer_server.py`, not paths from your laptop.
+
+The **Push To Hugging Face** form is always available. It can push any server-side `hf_dataset` path, and **Load Columns** lets you choose only the columns you want to upload. Leaving the columns field empty pushes all columns.
+
+For the Hugging Face token, add this to `synthetic_cs_dataset/.env` on the cloud machine:
+
+```bash
+HF_TOKEN=hf_...
+```
+
+You can also use `HUGGINGFACE_TOKEN`, export either variable before starting `viewer_server.py`, or run `huggingface-cli login` in that same server environment.
 
 ## Generation Design
 

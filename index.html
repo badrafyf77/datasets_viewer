@@ -403,14 +403,19 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
               <p class="hint" id="hfMergeProgressDetails">No merge running.</p>
             </div>
 
-            <div class="publish-panel" id="hfPushPanel" hidden>
+            <div class="publish-panel" id="hfPushPanel">
               <div class="panel-heading">
                 <h2>Push To Hugging Face</h2>
               </div>
               <form class="form-grid hf-push-form" id="hfPushForm">
                 <label class="wide-field">
-                  <span>Merged dataset path</span>
-                  <input id="hfPushDatasetPathInput" type="text" readonly />
+                  <span>HF dataset path</span>
+                  <input
+                    id="hfPushDatasetPathInput"
+                    type="text"
+                    value="synthetic_cs_dataset/data_merged/hf_dataset"
+                    autocomplete="off"
+                  />
                 </label>
                 <label class="wide-field">
                   <span>Dataset repo id</span>
@@ -421,6 +426,18 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
                     autocomplete="off"
                   />
                 </label>
+                <label class="wide-field">
+                  <span>Columns to push</span>
+                  <textarea
+                    id="hfPushColumnsInput"
+                    rows="4"
+                    placeholder="Leave empty for all columns, or enter one column per line"
+                    autocomplete="off"
+                  ></textarea>
+                </label>
+                <button class="button secondary" id="loadHfColumnsButton" type="button">
+                  Load Columns
+                </button>
                 <label class="checkbox-field">
                   <input id="hfPrivateRepoInput" type="checkbox" checked />
                   <span>Private repo</span>
@@ -429,8 +446,9 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
                   Push To Hugging Face
                 </button>
               </form>
+              <div class="column-toggles hf-column-toggles" id="hfColumnToggles"></div>
               <p class="hint">
-                Uses HF_TOKEN, HUGGINGFACE_TOKEN, or an existing Hugging Face CLI login on the server.
+                Token source: HF_TOKEN, HUGGINGFACE_TOKEN, synthetic_cs_dataset/.env, or Hugging Face CLI login on the server.
               </p>
               <div class="progress-card" id="hfPushProgressCard" hidden>
                 <div class="progress-header">

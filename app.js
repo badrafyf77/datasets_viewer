@@ -38,6 +38,7 @@ const state = {
   hfPushJobId: null,
   hfPushPollTimer: null,
   mergedHfDatasetPath: "",
+  hfPushColumns: [],
 };
 
 const els = {
@@ -117,6 +118,9 @@ const els = {
   hfPushForm: document.getElementById("hfPushForm"),
   hfPushDatasetPathInput: document.getElementById("hfPushDatasetPathInput"),
   hfRepoIdInput: document.getElementById("hfRepoIdInput"),
+  hfPushColumnsInput: document.getElementById("hfPushColumnsInput"),
+  loadHfColumnsButton: document.getElementById("loadHfColumnsButton"),
+  hfColumnToggles: document.getElementById("hfColumnToggles"),
   hfPrivateRepoInput: document.getElementById("hfPrivateRepoInput"),
   pushHfDatasetButton: document.getElementById("pushHfDatasetButton"),
   hfPushProgressCard: document.getElementById("hfPushProgressCard"),
@@ -319,9 +323,15 @@ async function detectServerFeatures() {
       : "Requires python3 viewer_server.py.";
   }
   if (els.pushHfDatasetButton) {
-    els.pushHfDatasetButton.disabled = !state.hfDatasetToolsAvailable || !state.mergedHfDatasetPath;
+    els.pushHfDatasetButton.disabled = !state.hfDatasetToolsAvailable;
     els.pushHfDatasetButton.title = state.hfDatasetToolsAvailable
       ? "Push the merged dataset to Hugging Face."
+      : "Requires python3 viewer_server.py.";
+  }
+  if (els.loadHfColumnsButton) {
+    els.loadHfColumnsButton.disabled = !state.hfDatasetToolsAvailable;
+    els.loadHfColumnsButton.title = state.hfDatasetToolsAvailable
+      ? "Load columns from this Hugging Face dataset path."
       : "Requires python3 viewer_server.py.";
   }
 }
@@ -584,6 +594,115 @@ function formatRowsBySplit(rowsBySplit = {}) {
   return entries.map(([split, rows]) => `${split}: ${formatNumber(rows)}`).join(", ");
 }
 
+function columnValuesFromText(value = "") {
+  return String(value)
+    .split(/\r?\n|,/)
+    .map((column) => column.trim().replace(/^["']|["']$/g, ""))
+    .filter(Boolean);
+}
+
+function setColumnsInput(columns) {
+  if (!els.hfPushColumnsInput) return;
+  els.hfPushColumnsInput.value = columns.join("\n");
+}
+
+function renderHfColumnToggles(columns = []) {
+  if (!els.hfColumnToggles) return;
+  els.hfColumnToggles.innerHTML = "";
+
+  if (!columns.length) {
+    const empty = document.createElement("p");
+    empty.className = "dataset-empty";
+    empty.textContent = "No columns loaded.";
+    els.hfColumnToggles.append(empty);
+    return;
+  }
+
+  const selected = new Set(columnValuesFromText(els.hfPushColumnsInput?.value || ""));
+  const selectedOrAll = selected.size ? selected : new Set(columns);
+
+  for (const column of columns) {
+    const label = document.createElement("label");
+    label.className = "column-toggle";
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = selectedOrAll.has(column);
+    checkbox.addEventListener("change", () => {
+      const checkedColumns = Array.from(els.hfColumnToggles.querySelectorAll("input:checked")).map(
+        (input) => input.value,
+      );
+      if (!checkedColumns.length) {
+        checkbox.checked = true;
+        setColumnsInput([column]);
+        showToast("Keep at least one column selected, or clear the columns field to push all columns.");
+        return;
+      }
+      setColumnsInput(checkedColumns);
+    });
+
+    const text = document.createElement("span");
+    text.textContent = column;
+
+    checkbox.value = column;
+    label.append(checkbox, text);
+    els.hfColumnToggles.append(label);
+  }
+
+  setColumnsInput(Array.from(selectedOrAll).filter((column) => columns.includes(column)));
+}
+
+async function loadHfColumns({ silent = false } = {}) {
+  if (!state.hfDatasetToolsAvailable) {
+    if (!silent) {
+      showError(
+        "Column loader unavailable",
+        "Column loading needs the Python backend.",
+        "Start the app with `python3 viewer_server.py --host 0.0.0.0 --port 8000`.",
+      );
+    }
+    return false;
+  }
+
+  const path = els.hfPushDatasetPathInput?.value.trim() || "";
+  if (!path) {
+    if (!silent) showError("Missing HF dataset path", "Enter the dataset path before loading columns.");
+    return false;
+  }
+
+  if (els.loadHfColumnsButton) {
+    els.loadHfColumnsButton.disabled = true;
+    els.loadHfColumnsButton.textContent = "Loading...";
+  }
+
+  try {
+    const response = await fetch(`./api/hf/columns?path=${encodeURIComponent(path)}`, { cache: "no-store" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    state.hfPushColumns = Array.isArray(payload.columns) ? payload.columns : [];
+    renderHfColumnToggles(state.hfPushColumns);
+    if (!silent) {
+      const splitSummary = formatRowsBySplit(payload.rows_by_split);
+      showMessage(
+        "success",
+        "Columns loaded",
+        splitSummary
+          ? `Loaded ${formatNumber(state.hfPushColumns.length)} common column(s). Splits: ${splitSummary}.`
+          : `Loaded ${formatNumber(state.hfPushColumns.length)} common column(s).`,
+      );
+    }
+    return true;
+  } catch (error) {
+    if (!silent) showError("Could not load columns", error);
+    return false;
+  } finally {
+    if (els.loadHfColumnsButton) {
+      els.loadHfColumnsButton.disabled = !state.hfDatasetToolsAvailable;
+      els.loadHfColumnsButton.textContent = "Load Columns";
+    }
+  }
+}
+
 async function startHfDatasetMerge(event) {
   event.preventDefault();
   clearMessage();
@@ -611,8 +730,7 @@ async function startHfDatasetMerge(event) {
   state.hfMergeJobId = null;
   state.hfPushJobId = null;
   state.mergedHfDatasetPath = "";
-  if (els.hfPushPanel) els.hfPushPanel.hidden = true;
-  if (els.pushHfDatasetButton) els.pushHfDatasetButton.disabled = true;
+  if (els.pushHfDatasetButton) els.pushHfDatasetButton.disabled = !state.hfDatasetToolsAvailable;
   if (els.hfPushProgressCard) els.hfPushProgressCard.hidden = true;
 
   els.mergeHfDatasetsButton.disabled = true;
@@ -654,9 +772,9 @@ async function pollHfMergeStatus() {
       const result = payload.job.result || {};
       const outputPath = result.output_path || els.hfMergeOutputInput.value.trim();
       state.mergedHfDatasetPath = outputPath;
-      if (els.hfPushPanel) els.hfPushPanel.hidden = false;
       if (els.hfPushDatasetPathInput) els.hfPushDatasetPathInput.value = outputPath;
       if (els.pushHfDatasetButton) els.pushHfDatasetButton.disabled = !state.hfDatasetToolsAvailable;
+      await loadHfColumns({ silent: true });
       const splitSummary = formatRowsBySplit(result.rows_by_split);
       showMessage(
         "success",
@@ -681,6 +799,7 @@ function hfPushParamsFromForm() {
   return {
     dataset_path: els.hfPushDatasetPathInput?.value.trim() || state.mergedHfDatasetPath,
     repo_id: els.hfRepoIdInput?.value.trim() || "",
+    columns: columnValuesFromText(els.hfPushColumnsInput?.value || ""),
     private: Boolean(els.hfPrivateRepoInput?.checked),
   };
 }
@@ -699,7 +818,7 @@ async function startHfDatasetPush(event) {
 
   const params = hfPushParamsFromForm();
   if (!params.dataset_path) {
-    showError("Missing merged dataset", "Merge the Hugging Face datasets first.");
+    showError("Missing HF dataset path", "Enter a Hugging Face `save_to_disk` folder path.");
     return;
   }
   if (!params.repo_id || /\s/.test(params.repo_id)) {
@@ -1689,6 +1808,11 @@ function bindEvents() {
   on(els.generatorForm, "submit", startGeneration);
   on(els.hfMergeForm, "submit", startHfDatasetMerge);
   on(els.hfPushForm, "submit", startHfDatasetPush);
+  on(els.loadHfColumnsButton, "click", () => loadHfColumns());
+  on(els.hfPushDatasetPathInput, "input", () => {
+    state.hfPushColumns = [];
+    if (els.hfColumnToggles) els.hfColumnToggles.innerHTML = "";
+  });
   on(els.syntheticTestButton, "click", runSyntheticTest);
 
   on(els.fileInput, "change", (event) => handleFiles(event.target.files));

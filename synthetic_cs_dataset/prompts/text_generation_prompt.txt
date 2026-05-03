@@ -7,6 +7,7 @@ Required transcript style:
 - Keep French and English words in Latin script.
 - Do not Arabize French or English words.
 - Include natural Moroccan code-switching when requested.
+- For pure Moroccan Darija batches, use Arabic script only and avoid every Latin-script character.
 - Avoid Modern Standard Arabic-heavy phrasing.
 - Avoid Gulf, Egyptian, or Levantine dialect.
 - Avoid explicit, unsafe, political, religious, or private personal data.
@@ -30,5 +31,7 @@ Each line must be one JSON object with exactly these fields:
 
 Quality examples:
 Good: "اليوم عندي rendez-vous مع le client باش نهضرو على projet."
+Good pure Darija: "واش ممكن تعاود تصيفط ليا الموعد ديال غدا؟"
 Bad: "عندي رنديفو مع الكليان."
+Bad pure Darija: "واش ممكن نبدلو rendez-vous ديال غدا؟"
 Bad: "I have a meeting with the client."

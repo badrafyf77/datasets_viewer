@@ -192,7 +192,7 @@ MIX_DESCRIPTIONS = {
     "darija_french": "Darija + French only. Include at least one French word or phrase in Latin script.",
     "darija_english": "Darija + English only. Include at least one English word or phrase in Latin script.",
     "darija_french_english": "Darija + French + English. Include at least one French term and one English term in Latin script.",
-    "pure_darija": "Pure Moroccan Darija in Arabic script only. Do not include French or English.",
+    "pure_darija": "Pure Moroccan Darija in Arabic script only. Do not include French, English, or any Latin letters.",
 }
 
 
@@ -447,14 +447,16 @@ def build_prompt(
 ) -> str:
     first_id = f"cs_{first_numeric_id:06d}"
     last_id = f"cs_{first_numeric_id + n - 1:06d}"
+    french_terms = ", ".join(FRENCH_TERMS) if "french" in mix_name else "not requested in this batch"
+    english_terms = ", ".join(ENGLISH_TERMS) if "english" in mix_name else "not requested in this batch"
     return prompt_template.format(
         n=n,
         first_id=first_id,
         last_id=last_id,
         domains=", ".join(domains),
         mix_description=MIX_DESCRIPTIONS[mix_name],
-        french_terms=", ".join(FRENCH_TERMS),
-        english_terms=", ".join(ENGLISH_TERMS),
+        french_terms=french_terms,
+        english_terms=english_terms,
         max_words=max_words,
     )
 
@@ -571,16 +573,19 @@ def request_valid_batch(
 ) -> BatchResult:
     reject_counts: Counter[str] = Counter()
     max_retries = int(text_config.get("max_retries_per_batch", 5))
+    saw_llm_response = False
     for attempt in range(1, max_retries + 1):
         try:
             content = request_batch(client, text_config, prompt)
         except Exception as exc:
             reject_counts["api_error"] += 1
-            if attempt >= max_retries:
+            if attempt >= max_retries and not saw_llm_response:
                 raise RuntimeError(friendly_llm_error(exc, text_config)) from exc
-            time.sleep(min(2 ** attempt, 20))
+            if attempt < max_retries:
+                time.sleep(min(2 ** attempt, 20))
             continue
 
+        saw_llm_response = True
         accepted_rows: list[dict[str, Any]] = []
         candidates = parse_jsonl_response(content)
         for candidate in candidates:
@@ -599,11 +604,10 @@ def request_valid_batch(
         if accepted_rows:
             return BatchResult(requested_mix, accepted_rows, reject_counts)
 
-        time.sleep(min(2 ** attempt, 20))
+        if attempt < max_retries:
+            time.sleep(min(2 ** attempt, 20))
 
-    raise RuntimeError(
-        f"No acceptable rows returned for mix {requested_mix}. Rejections: {dict(reject_counts)}"
-    )
+    return BatchResult(requested_mix, [], reject_counts)
 
 
 def append_rows(output_path: Path, rows: list[dict[str, Any]]) -> None:
@@ -771,7 +775,7 @@ def main() -> None:
                     )
                     if empty_merge_results >= max_empty_results:
                         raise RuntimeError(
-                            "LLM batches kept returning rows that were already duplicates or outside quotas. "
+                            "LLM batches kept returning no usable rows after filtering, dedupe, or quota checks. "
                             f"Accepted {len(rows)}/{total_target}; rejections: {dict(reject_counts)}"
                         )
     finally:

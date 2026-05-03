@@ -27,10 +27,10 @@ text_generation:
   request_timeout_seconds: 120
 
   language_mix_distribution:
-    darija_french: 0.50
-    darija_english: 0.25
-    darija_french_english: 0.15
-    pure_darija: 0.10
+    darija_french: 0.56
+    darija_english: 0.28
+    darija_french_english: 0.16
+    pure_darija: 0.0
 
   domains:
     - phone_call_support

@@ -532,9 +532,10 @@ def prepare_runtime_config(job_id: str, params: dict, site_root: Path, pipeline_
         raise RuntimeError("augmentation_probability must be between 0 and 1.")
 
     audio_subdir = str(audio_config.get("audio_subdir", "audio"))
+    text_output_path = resolve_pipeline_output(f"{output_dir}/texts.jsonl", pipeline_dir)
     text_config["num_texts"] = num_texts
     text_config["batch_size"] = batch_size
-    text_config["resume"] = False
+    text_config["resume"] = count_jsonl_lines(text_output_path) > 0
     text_config["output_path"] = f"{output_dir}/texts.jsonl"
     audio_config["texts_path"] = f"{output_dir}/texts.jsonl"
     audio_config["output_dir"] = output_dir

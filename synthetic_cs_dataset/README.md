@@ -201,10 +201,10 @@ Stage 1 uses an OpenAI-compatible chat API. Transcript batches are requested in 
 
 The generator targets this mix:
 
-- 50% Darija + French
-- 25% Darija + English
-- 15% Darija + French + English
-- 10% pure Darija
+- 56% Darija + French
+- 28% Darija + English
+- 16% Darija + French + English
+- 0% pure Darija
 
 Rows are deduplicated and rejected when they are empty, too short, too long, missing Arabic script, missing Latin code-switching for mixed rows, too MSA-heavy, repeated, or likely to contain private numeric/email data.
 

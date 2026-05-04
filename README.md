@@ -4,7 +4,7 @@ A local web tool for three workflows:
 
 - **Datasets Viewer**: load a server-side dataset path, choose a row preview limit, inspect rows, and play audio.
 - **Darija Code-Switch Generator**: run a one-sample smoke test or launch the synthetic Darija/French/English dataset pipeline.
-- **Datasets Cleaner**: remove bad ASR samples with Whisper CER and transcript-duration checks.
+- **Datasets Cleaner**: remove bad ASR samples, then remove duplicate transcript rows.
 
 ## Run The Studio
 
@@ -69,12 +69,14 @@ The **Push To Hugging Face** form can push any server-side `hf_dataset` path. Cl
 
 Open **Datasets Cleaner**.
 
-The first cleaning phase removes rows that fail either check:
+Phase 1, **Bad Sample Removal**, removes rows that fail either check:
 
 - Whisper transcription CER above the threshold, default `0.6`
 - Transcript length outside the chars/sec range, default `5` to `22`
 
-Choose **Save cleaned copy** and enter a new output folder, or choose **Override original dataset**. When the job finishes, the page shows the removed sample count, the saved dataset path, and a JSON report path with the bad-sample details.
+Phase 2, **Duplicate Text Removal**, removes repeated transcript rows and keeps the first occurrence. By default it normalizes spaces, casing, and simple punctuation before matching duplicate text.
+
+Choose **Save cleaned copy** and enter a new output folder, or choose **Override original dataset**. When a job finishes, the page shows the removed sample count, the saved dataset path, and a JSON report path with removal details.
 
 Install the cleaner dependencies in the same environment running `viewer_server.py`:
 

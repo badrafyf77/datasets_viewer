@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Moroccan ASR Dataset Studio</title>
-    <link rel="stylesheet" href="./styles.css?v=studio5" />
+    <link rel="stylesheet" href="./styles.css?v=studio6" />
   </head>
   <body>
     <div class="app-shell">
@@ -610,8 +610,8 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
               <p class="eyebrow">Datasets Cleaner</p>
               <h2>Remove bad samples from a saved speech dataset.</h2>
               <p>
-                Run Whisper CER and transcript-duration checks, then save a
-                cleaned Hugging Face dataset copy or replace the original.
+                Remove bad audio/text pairs first, then remove repeated
+                transcript rows from the cleaned Hugging Face dataset.
               </p>
             </div>
           </header>
@@ -746,12 +746,82 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
 
             <div class="result-box" id="cleanerResult" hidden></div>
           </section>
+
+          <section class="panel form-panel">
+            <div class="panel-heading">
+              <h2>Duplicate Text Removal</h2>
+            </div>
+            <form class="form-grid cleaner-form" id="duplicateCleanerForm">
+              <label class="wide-field">
+                <span>Dataset path</span>
+                <input
+                  id="duplicateDatasetPathInput"
+                  type="text"
+                  value="/teamspace/studios/this_studio/darija_clean"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Transcript column</span>
+                <input
+                  id="duplicateTranscriptColumnInput"
+                  type="text"
+                  placeholder="text"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="checkbox-field">
+                <input id="duplicateNormalizeTextInput" type="checkbox" checked />
+                <span>Normalize text before matching</span>
+              </label>
+              <label class="wide-field">
+                <span>Save mode</span>
+                <select id="duplicateSaveModeInput">
+                  <option value="copy" selected>Save deduplicated copy</option>
+                  <option value="overwrite">Override original dataset</option>
+                </select>
+              </label>
+              <label class="wide-field" id="duplicateOutputPathField">
+                <span>New dataset path</span>
+                <input
+                  id="duplicateOutputPathInput"
+                  type="text"
+                  value="synthetic_cs_dataset/data_deduped/hf_dataset"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="checkbox-field" id="duplicateOverwriteOutputField">
+                <input id="duplicateOverwriteOutputInput" type="checkbox" />
+                <span>Overwrite output folder</span>
+              </label>
+              <button
+                class="button primary"
+                id="runDuplicateCleanerButton"
+                type="submit"
+              >
+                Remove Duplicates
+              </button>
+            </form>
+
+            <div class="progress-card" id="duplicateProgressCard" hidden>
+              <div class="progress-header">
+                <strong id="duplicateProgressLabel">Waiting</strong>
+                <span id="duplicateProgressPercent">0%</span>
+              </div>
+              <div class="progress-track" aria-label="Duplicate text removal progress">
+                <div class="progress-fill" id="duplicateProgressFill"></div>
+              </div>
+              <p class="hint" id="duplicateProgressDetails">No duplicate cleaner job running.</p>
+            </div>
+
+            <div class="result-box" id="duplicateResult" hidden></div>
+          </section>
         </section>
       </main>
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="./app.js?v=studio5"></script>
+    <script src="./app.js?v=studio6"></script>
   </body>
 </html>

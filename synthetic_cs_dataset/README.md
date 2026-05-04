@@ -107,7 +107,7 @@ You can also use the web UI from the repo root:
 python3 viewer_server.py --host 0.0.0.0 --port 8000
 ```
 
-Open **Darija Code-Switch Generator** to run the one-sample test or start a full generation job with a progress bar.
+Open **Darija Code-Switch Generator** to run the one-sample test or start a full generation job with a progress bar. After building an `hf_dataset`, open **Datasets Cleaner** to remove bad samples first, then remove duplicate rows with the same transcript.
 
 For a small smoke test:
 

@@ -157,6 +157,9 @@ class DatasetViewerHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/cleaner/bad-samples/start":
             self.start_dataset_cleaner()
             return
+        if parsed.path == "/api/cleaner/duplicates/start":
+            self.start_duplicate_cleaner()
+            return
         self.send_error(HTTPStatus.NOT_FOUND, "Unknown endpoint")
 
     def send_json(self, payload: object) -> None:
@@ -483,6 +486,39 @@ class DatasetViewerHandler(SimpleHTTPRequestHandler):
 
         thread = threading.Thread(
             target=run_dataset_cleaner_job,
+            args=(job_id, params, self.site_root),
+            daemon=True,
+        )
+        thread.start()
+        self.send_json({"ok": True, "job_id": job_id, "job": public_job(job)})
+
+    def start_duplicate_cleaner(self) -> None:
+        try:
+            params = self.read_json_body()
+        except ValueError as exc:
+            self.send_error_json(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+
+        job_id = uuid.uuid4().hex[:12]
+        job = {
+            "id": job_id,
+            "ok": True,
+            "status": "queued",
+            "stage": "Queued",
+            "percent": 0,
+            "message": "Waiting to remove duplicate transcripts.",
+            "error": "",
+            "log_tail": "",
+            "started_at": time.time(),
+            "updated_at": time.time(),
+            "params": params,
+            "result": {},
+        }
+        with CLEANER_LOCK:
+            CLEANER_JOBS[job_id] = job
+
+        thread = threading.Thread(
+            target=run_duplicate_cleaner_job,
             args=(job_id, params, self.site_root),
             daemon=True,
         )
@@ -1599,6 +1635,71 @@ def cleaner_report_path(output_path: Path) -> Path:
     return output_path.parent / f"{output_path.name}_cleaner_report_{stamp}.json"
 
 
+def duplicate_report_path(output_path: Path) -> Path:
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    return output_path.parent / f"{output_path.name}_duplicate_report_{stamp}.json"
+
+
+def normalize_duplicate_text(value: str, normalize: bool) -> str:
+    text = normalized_asr_text(value)
+    if not normalize:
+        return text
+    text = text.lower()
+    text = re.sub(r"[،,.!?؟;:]+", "", text)
+    return normalized_asr_text(text)
+
+
+def duplicate_sample_identity(row: dict) -> str:
+    return bad_sample_identity(row)
+
+
+def duplicate_output_path_for(
+    dataset_path: Path,
+    output_mode: str,
+    output_value: str,
+    overwrite_output: bool,
+    site_root: Path,
+    pipeline_dir: Path,
+) -> Path:
+    if output_mode not in {"copy", "overwrite"}:
+        raise RuntimeError("Save mode must be `copy` or `overwrite`.")
+    if output_mode == "overwrite":
+        return dataset_path
+
+    output_path = (
+        resolve_hf_dataset_path(output_value, site_root, pipeline_dir, must_exist=False)
+        if output_value
+        else unique_path(dataset_path.with_name(f"{dataset_path.name}_deduped"))
+    )
+    if output_path == dataset_path:
+        raise RuntimeError("Use Override original dataset when the output path is the input path.")
+    if output_path.exists() and not overwrite_output:
+        raise RuntimeError(f"Output path already exists: {output_path}. Enable overwrite or choose a new folder.")
+    return output_path
+
+
+def save_cleaner_dataset(cleaned, output_path: Path, output_mode: str, site_root: Path, pipeline_dir: Path) -> None:
+    if output_mode == "overwrite":
+        temp_output = output_path.with_name(f".{output_path.name}.cleaner-{uuid.uuid4().hex[:8]}")
+        temp_output.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            cleaned.save_to_disk(str(temp_output))
+            guarded_remove_output(output_path, site_root, pipeline_dir)
+            shutil.move(str(temp_output), str(output_path))
+        finally:
+            if temp_output.exists():
+                try:
+                    guarded_remove_output(temp_output, site_root, pipeline_dir)
+                except Exception:
+                    pass
+        return
+
+    if output_path.exists():
+        guarded_remove_output(output_path, site_root, pipeline_dir)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    cleaned.save_to_disk(str(output_path))
+
+
 def run_dataset_cleaner_job(job_id: str, params: dict, site_root: Path) -> None:
     pipeline_dir = site_root / "synthetic_cs_dataset"
     temp_output: Path | None = None
@@ -1847,6 +1948,205 @@ def run_dataset_cleaner_job(job_id: str, params: dict, site_root: Path) -> None:
             stage="Failed",
             percent=100,
             message="Dataset cleaner failed.",
+            error=str(exc),
+            log_tail=str(exc),
+            result={"output_path": str(output_path) if output_path else ""},
+        )
+
+
+def run_duplicate_cleaner_job(job_id: str, params: dict, site_root: Path) -> None:
+    pipeline_dir = site_root / "synthetic_cs_dataset"
+    output_path: Path | None = None
+    try:
+        dataset_value = str(params.get("dataset_path") or "").strip()
+        if not dataset_value:
+            raise RuntimeError("Missing dataset path.")
+
+        dataset_path = resolve_hf_dataset_path(dataset_value, site_root, pipeline_dir, must_exist=True)
+        if not dataset_path.exists():
+            raise RuntimeError(f"Dataset path was not found: {dataset_path}")
+
+        output_mode = str(params.get("output_mode") or "copy").strip()
+        output_value = str(params.get("output_path") or "").strip()
+        overwrite_output = cleaner_bool(params, "overwrite_output", False)
+        normalize_text = cleaner_bool(params, "normalize_text", True)
+        output_path = duplicate_output_path_for(
+            dataset_path,
+            output_mode,
+            output_value,
+            overwrite_output,
+            site_root,
+            pipeline_dir,
+        )
+
+        update_cleaner_job(
+            job_id,
+            status="running",
+            stage="Loading",
+            percent=5,
+            message=f"Loading dataset from {dataset_path}",
+            result={"input_path": str(dataset_path), "output_path": str(output_path)},
+        )
+
+        try:
+            from datasets import Dataset, DatasetDict, load_from_disk
+        except ImportError as exc:
+            raise RuntimeError("Install the `datasets` package before cleaning datasets.") from exc
+
+        loaded = load_from_disk(str(dataset_path))
+        if isinstance(loaded, DatasetDict):
+            split_map = dict(loaded.items())
+            single_dataset = False
+        elif isinstance(loaded, Dataset):
+            split_map = {"train": loaded}
+            single_dataset = True
+        else:
+            raise RuntimeError(f"Unsupported Hugging Face dataset type at {dataset_path}")
+
+        transcript_column = infer_common_cleaner_column(
+            split_map,
+            str(params.get("transcript_column") or "").strip(),
+            TRANSCRIPT_COLUMN_CANDIDATES,
+            "Transcript",
+        )
+
+        rows_by_split = {split: len(dataset) for split, dataset in split_map.items()}
+        total_rows = sum(rows_by_split.values())
+        if total_rows <= 0:
+            raise RuntimeError("The dataset has no rows to deduplicate.")
+
+        seen: dict[str, dict] = {}
+        duplicate_samples: list[dict] = []
+        duplicate_groups: set[str] = set()
+        cleaned_splits = {}
+        kept_by_split: dict[str, int] = {}
+        removed_by_split: dict[str, int] = {}
+        processed = 0
+        last_update = 0.0
+
+        for split, dataset in split_map.items():
+            good_indices: list[int] = []
+            for index in range(len(dataset)):
+                row = dict(dataset[index])
+                text = str(row.get(transcript_column) or "")
+                key = normalize_duplicate_text(text, normalize_text)
+                if not key:
+                    good_indices.append(index)
+                elif key in seen:
+                    first = seen[key]
+                    duplicate_groups.add(key)
+                    duplicate_samples.append(
+                        {
+                            "split": split,
+                            "row": index,
+                            "id": duplicate_sample_identity(row),
+                            "text": normalized_asr_text(text),
+                            "duplicate_key": key,
+                            "duplicate_of": {
+                                "split": first.get("split"),
+                                "row": first.get("row"),
+                                "id": first.get("id"),
+                            },
+                            "reason": "duplicate_text",
+                        }
+                    )
+                else:
+                    seen[key] = {
+                        "split": split,
+                        "row": index,
+                        "id": duplicate_sample_identity(row),
+                    }
+                    good_indices.append(index)
+
+                processed += 1
+                now = time.time()
+                if now - last_update >= 1.2 or processed == total_rows:
+                    percent = 12 + min(76, (processed / total_rows) * 76)
+                    update_cleaner_job(
+                        job_id,
+                        stage="Finding duplicates",
+                        percent=round(percent, 1),
+                        message=(
+                            f"Checked {processed}/{total_rows} sample(s). "
+                            f"Found {len(duplicate_samples)} duplicate row(s)."
+                        ),
+                        result={
+                            "input_path": str(dataset_path),
+                            "output_path": str(output_path),
+                            "processed_rows": processed,
+                            "removed_rows": len(duplicate_samples),
+                            "duplicate_groups": len(duplicate_groups),
+                            "rows_by_split": rows_by_split,
+                        },
+                    )
+                    last_update = now
+
+            cleaned_splits[split] = dataset.select(good_indices)
+            kept_by_split[split] = len(good_indices)
+            removed_by_split[split] = len(dataset) - len(good_indices)
+
+        cleaned = cleaned_splits["train"] if single_dataset else DatasetDict(cleaned_splits)
+        removed_rows = len(duplicate_samples)
+        kept_rows = sum(kept_by_split.values())
+
+        update_cleaner_job(
+            job_id,
+            stage="Saving",
+            percent=92,
+            message=f"Saving deduplicated dataset to {output_path}",
+            result={
+                "input_path": str(dataset_path),
+                "output_path": str(output_path),
+                "total_rows": total_rows,
+                "kept_rows": kept_rows,
+                "removed_rows": removed_rows,
+                "duplicate_groups": len(duplicate_groups),
+                "kept_by_split": kept_by_split,
+                "removed_by_split": removed_by_split,
+            },
+        )
+
+        save_cleaner_dataset(cleaned, output_path, output_mode, site_root, pipeline_dir)
+
+        report_path = duplicate_report_path(output_path)
+        result = {
+            "input_path": str(dataset_path),
+            "output_path": str(output_path),
+            "output_mode": output_mode,
+            "report_path": str(report_path),
+            "total_rows": total_rows,
+            "kept_rows": kept_rows,
+            "removed_rows": removed_rows,
+            "duplicate_groups": len(duplicate_groups),
+            "rows_by_split": rows_by_split,
+            "kept_by_split": kept_by_split,
+            "removed_by_split": removed_by_split,
+            "transcript_column": transcript_column,
+            "normalize_text": normalize_text,
+            "duplicate_samples_preview": duplicate_samples[:25],
+        }
+        report_payload = dict(result)
+        report_payload["duplicate_samples"] = duplicate_samples
+        report_path.write_text(json.dumps(report_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        DatasetViewerHandler.dataset_cache.clear()
+        DatasetViewerHandler.dataset_path = output_path
+
+        update_cleaner_job(
+            job_id,
+            status="completed",
+            stage="Completed",
+            percent=100,
+            message=f"Removed {removed_rows} duplicate sample(s). Deduplicated dataset: {output_path}",
+            result=result,
+        )
+    except Exception as exc:
+        update_cleaner_job(
+            job_id,
+            status="failed",
+            stage="Failed",
+            percent=100,
+            message="Duplicate text cleaner failed.",
             error=str(exc),
             log_tail=str(exc),
             result={"output_path": str(output_path) if output_path else ""},

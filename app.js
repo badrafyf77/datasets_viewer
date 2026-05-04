@@ -53,6 +53,8 @@ const state = {
   hfPushPollTimer: null,
   cleanerJobId: null,
   cleanerPollTimer: null,
+  duplicateCleanerJobId: null,
+  duplicateCleanerPollTimer: null,
   mergedHfDatasetPath: "",
   hfPushColumns: [],
 };
@@ -192,6 +194,22 @@ const els = {
   cleanerProgressFill: document.getElementById("cleanerProgressFill"),
   cleanerProgressDetails: document.getElementById("cleanerProgressDetails"),
   cleanerResult: document.getElementById("cleanerResult"),
+  duplicateCleanerForm: document.getElementById("duplicateCleanerForm"),
+  duplicateDatasetPathInput: document.getElementById("duplicateDatasetPathInput"),
+  duplicateTranscriptColumnInput: document.getElementById("duplicateTranscriptColumnInput"),
+  duplicateNormalizeTextInput: document.getElementById("duplicateNormalizeTextInput"),
+  duplicateSaveModeInput: document.getElementById("duplicateSaveModeInput"),
+  duplicateOutputPathField: document.getElementById("duplicateOutputPathField"),
+  duplicateOutputPathInput: document.getElementById("duplicateOutputPathInput"),
+  duplicateOverwriteOutputField: document.getElementById("duplicateOverwriteOutputField"),
+  duplicateOverwriteOutputInput: document.getElementById("duplicateOverwriteOutputInput"),
+  runDuplicateCleanerButton: document.getElementById("runDuplicateCleanerButton"),
+  duplicateProgressCard: document.getElementById("duplicateProgressCard"),
+  duplicateProgressLabel: document.getElementById("duplicateProgressLabel"),
+  duplicateProgressPercent: document.getElementById("duplicateProgressPercent"),
+  duplicateProgressFill: document.getElementById("duplicateProgressFill"),
+  duplicateProgressDetails: document.getElementById("duplicateProgressDetails"),
+  duplicateResult: document.getElementById("duplicateResult"),
   toast: document.getElementById("toast"),
 };
 
@@ -355,6 +373,9 @@ async function detectServerFeatures() {
     if (payload.default_dataset_path && els.cleanerDatasetPathInput) {
       els.cleanerDatasetPathInput.value = payload.default_dataset_path;
     }
+    if (payload.default_dataset_path && els.duplicateDatasetPathInput) {
+      els.duplicateDatasetPathInput.value = payload.default_dataset_path;
+    }
     if (payload.default_max_rows !== undefined && els.maxRowsInput) {
       els.maxRowsInput.value = String(payload.default_max_rows);
     }
@@ -419,6 +440,12 @@ async function detectServerFeatures() {
     els.runCleanerButton.disabled = !state.datasetCleanerAvailable;
     els.runCleanerButton.title = state.datasetCleanerAvailable
       ? "Run bad-sample removal."
+      : "Requires python3 viewer_server.py.";
+  }
+  if (els.runDuplicateCleanerButton) {
+    els.runDuplicateCleanerButton.disabled = !state.datasetCleanerAvailable;
+    els.runDuplicateCleanerButton.title = state.datasetCleanerAvailable
+      ? "Remove rows that repeat the same transcript."
       : "Requires python3 viewer_server.py.";
   }
 }
@@ -1092,6 +1119,12 @@ function setCleanerSaveModeState() {
   if (els.cleanerOverwriteOutputField) els.cleanerOverwriteOutputField.hidden = isOverwrite;
 }
 
+function setDuplicateSaveModeState() {
+  const isOverwrite = els.duplicateSaveModeInput?.value === "overwrite";
+  if (els.duplicateOutputPathField) els.duplicateOutputPathField.hidden = isOverwrite;
+  if (els.duplicateOverwriteOutputField) els.duplicateOverwriteOutputField.hidden = isOverwrite;
+}
+
 function setCleanerProgress(status = {}) {
   setProgressElements(
     {
@@ -1100,6 +1133,19 @@ function setCleanerProgress(status = {}) {
       percent: els.cleanerProgressPercent,
       label: els.cleanerProgressLabel,
       details: els.cleanerProgressDetails,
+    },
+    status,
+  );
+}
+
+function setDuplicateProgress(status = {}) {
+  setProgressElements(
+    {
+      card: els.duplicateProgressCard,
+      fill: els.duplicateProgressFill,
+      percent: els.duplicateProgressPercent,
+      label: els.duplicateProgressLabel,
+      details: els.duplicateProgressDetails,
     },
     status,
   );
@@ -1120,6 +1166,17 @@ function cleanerParamsFromForm() {
     output_mode: els.cleanerSaveModeInput?.value || "copy",
     output_path: els.cleanerOutputPathInput?.value.trim() || "",
     overwrite_output: Boolean(els.cleanerOverwriteOutputInput?.checked),
+  };
+}
+
+function duplicateParamsFromForm() {
+  return {
+    dataset_path: els.duplicateDatasetPathInput?.value.trim() || "",
+    transcript_column: els.duplicateTranscriptColumnInput?.value.trim() || "",
+    normalize_text: Boolean(els.duplicateNormalizeTextInput?.checked),
+    output_mode: els.duplicateSaveModeInput?.value || "copy",
+    output_path: els.duplicateOutputPathInput?.value.trim() || "",
+    overwrite_output: Boolean(els.duplicateOverwriteOutputInput?.checked),
   };
 }
 
@@ -1152,6 +1209,40 @@ function renderCleanerResult(result = {}) {
   els.cleanerResult.textContent = [
     `Removed ${formatNumber(removed)} of ${formatNumber(total)} sample(s).`,
     `Kept ${formatNumber(kept)} sample(s).`,
+    removedBySplit ? `Removed by split: ${removedBySplit}.` : "",
+    outputPath ? `Saved dataset: ${outputPath}` : "",
+    reportPath ? `Report: ${reportPath}` : "",
+    previewLines.length ? `Preview:\n${previewLines.join("\n")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function renderDuplicateResult(result = {}) {
+  if (!els.duplicateResult) return;
+  const removed = Number(result.removed_rows || 0);
+  const total = Number(result.total_rows || 0);
+  const kept = Number(result.kept_rows || 0);
+  const groups = Number(result.duplicate_groups || 0);
+  const outputPath = result.output_path || "";
+  const reportPath = result.report_path || "";
+  const removedBySplit = formatSplitCounts(result.removed_by_split);
+  const preview = Array.isArray(result.duplicate_samples_preview)
+    ? result.duplicate_samples_preview.slice(0, 8)
+    : [];
+  const previewLines = preview.map((sample) => {
+    const row = sample.row !== undefined ? `row ${formatNumber(Number(sample.row) + 1)}` : "row ?";
+    const split = sample.split || "split";
+    const first = sample.duplicate_of || {};
+    const firstRow = first.row !== undefined ? `row ${formatNumber(Number(first.row) + 1)}` : "row ?";
+    const id = sample.id ? `, ${sample.id}` : "";
+    return `- ${split} ${row}${id}: duplicate of ${first.split || "split"} ${firstRow}`;
+  });
+
+  els.duplicateResult.hidden = false;
+  els.duplicateResult.textContent = [
+    `Removed ${formatNumber(removed)} duplicate sample(s) from ${formatNumber(total)} total.`,
+    `Kept ${formatNumber(kept)} sample(s). Duplicate groups: ${formatNumber(groups)}.`,
     removedBySplit ? `Removed by split: ${removedBySplit}.` : "",
     outputPath ? `Saved dataset: ${outputPath}` : "",
     reportPath ? `Report: ${reportPath}` : "",
@@ -1240,6 +1331,7 @@ async function pollDatasetCleanerStatus() {
       if (outputPath) {
         if (els.datasetPathInput) els.datasetPathInput.value = outputPath;
         if (els.cleanerDatasetPathInput) els.cleanerDatasetPathInput.value = outputPath;
+        if (els.duplicateDatasetPathInput) els.duplicateDatasetPathInput.value = outputPath;
         const maxRows = Number(els.maxRowsInput?.value || 0);
         await loadServerDataset({ path: outputPath, maxRows, silent: true });
       }
@@ -1260,6 +1352,103 @@ async function pollDatasetCleanerStatus() {
     els.runCleanerButton.disabled = false;
     els.runCleanerButton.textContent = "Run Cleaner";
     showError("Could not read dataset cleaner status", error);
+  }
+}
+
+async function startDuplicateCleaner(event) {
+  event.preventDefault();
+  clearMessage();
+  if (!state.datasetCleanerAvailable) {
+    showError(
+      "Duplicate cleaner unavailable",
+      "Cleaning needs the Python backend.",
+      "Start the app with `python3 viewer_server.py --host 0.0.0.0 --port 8000`.",
+    );
+    return;
+  }
+
+  const params = duplicateParamsFromForm();
+  if (!params.dataset_path) {
+    showError("Missing dataset path", "Enter the Hugging Face dataset folder path before deduplicating.");
+    return;
+  }
+  if (params.output_mode === "copy" && !params.output_path) {
+    showError("Missing output path", "Enter a destination for the deduplicated dataset copy.");
+    return;
+  }
+  if (params.output_mode === "overwrite") {
+    const confirmed = window.confirm(`Override the original dataset at ${params.dataset_path}?`);
+    if (!confirmed) return;
+  }
+
+  window.clearInterval(state.duplicateCleanerPollTimer);
+  state.duplicateCleanerJobId = null;
+  if (els.duplicateResult) els.duplicateResult.hidden = true;
+  els.runDuplicateCleanerButton.disabled = true;
+  els.runDuplicateCleanerButton.textContent = "Deduplicating...";
+  setDuplicateProgress({ percent: 1, stage: "Starting", message: "Preparing duplicate text removal..." });
+
+  try {
+    const response = await fetch("./api/cleaner/duplicates/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    state.duplicateCleanerJobId = payload.job_id;
+    pollDuplicateCleanerStatus();
+    state.duplicateCleanerPollTimer = window.setInterval(pollDuplicateCleanerStatus, 1500);
+  } catch (error) {
+    els.runDuplicateCleanerButton.disabled = false;
+    els.runDuplicateCleanerButton.textContent = "Remove Duplicates";
+    showError("Could not start duplicate cleaner", error);
+  }
+}
+
+async function pollDuplicateCleanerStatus() {
+  if (!state.duplicateCleanerJobId) return;
+  try {
+    const response = await fetch(`./api/cleaner/status?id=${encodeURIComponent(state.duplicateCleanerJobId)}`, {
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    setDuplicateProgress(payload.job);
+
+    if (payload.job.status === "completed") {
+      window.clearInterval(state.duplicateCleanerPollTimer);
+      els.runDuplicateCleanerButton.disabled = false;
+      els.runDuplicateCleanerButton.textContent = "Remove Duplicates";
+      const result = payload.job.result || {};
+      const outputPath = result.output_path || "";
+      renderDuplicateResult(result);
+      if (outputPath) {
+        if (els.datasetPathInput) els.datasetPathInput.value = outputPath;
+        if (els.cleanerDatasetPathInput) els.cleanerDatasetPathInput.value = outputPath;
+        if (els.duplicateDatasetPathInput) els.duplicateDatasetPathInput.value = outputPath;
+        const maxRows = Number(els.maxRowsInput?.value || 0);
+        await loadServerDataset({ path: outputPath, maxRows, silent: true });
+      }
+      showMessage(
+        "success",
+        "Duplicate cleaner completed",
+        `Removed ${formatNumber(result.removed_rows || 0)} duplicate sample(s) across ${formatNumber(
+          result.duplicate_groups || 0,
+        )} text group(s).`,
+        outputPath,
+      );
+    } else if (payload.job.status === "failed") {
+      window.clearInterval(state.duplicateCleanerPollTimer);
+      els.runDuplicateCleanerButton.disabled = false;
+      els.runDuplicateCleanerButton.textContent = "Remove Duplicates";
+      showError("Duplicate cleaner failed", payload.job.error || "The duplicate cleaner job failed.", payload.job.log_tail || "");
+    }
+  } catch (error) {
+    window.clearInterval(state.duplicateCleanerPollTimer);
+    els.runDuplicateCleanerButton.disabled = false;
+    els.runDuplicateCleanerButton.textContent = "Remove Duplicates";
+    showError("Could not read duplicate cleaner status", error);
   }
 }
 
@@ -2625,6 +2814,8 @@ function bindEvents() {
   on(els.hfPushForm, "submit", startHfDatasetPush);
   on(els.cleanerForm, "submit", startDatasetCleaner);
   on(els.cleanerSaveModeInput, "change", setCleanerSaveModeState);
+  on(els.duplicateCleanerForm, "submit", startDuplicateCleaner);
+  on(els.duplicateSaveModeInput, "change", setDuplicateSaveModeState);
   on(els.loadHfColumnsButton, "click", () => loadHfColumns());
   on(els.hfPushDatasetPathInput, "input", () => {
     state.hfPushColumns = [];
@@ -2738,6 +2929,7 @@ function bindEvents() {
 
 bindEvents();
 setCleanerSaveModeState();
+setDuplicateSaveModeState();
 render();
 switchPage("viewer");
 detectServerFeatures();

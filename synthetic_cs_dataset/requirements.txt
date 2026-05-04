@@ -1,4 +1,5 @@
 openai
+openai-whisper
 pyyaml
 tqdm
 pandas
@@ -7,3 +8,4 @@ librosa
 numpy
 datasets
 jsonlines
+jiwer

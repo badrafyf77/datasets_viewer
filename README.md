@@ -1,9 +1,10 @@
 # Moroccan ASR Dataset Studio
 
-A local web tool for two workflows:
+A local web tool for three workflows:
 
 - **Datasets Viewer**: load a server-side dataset path, choose a row preview limit, inspect rows, and play audio.
 - **Darija Code-Switch Generator**: run a one-sample smoke test or launch the synthetic Darija/French/English dataset pipeline.
+- **Datasets Cleaner**: remove bad ASR samples with Whisper CER and transcript-duration checks.
 
 ## Run The Studio
 
@@ -63,6 +64,23 @@ For a full run, set the generation parameters and click **Generate Dataset**. Th
 After creating multiple `hf_dataset/` folders, use **Merge HF Datasets** on the same page. Put one `save_to_disk` folder path per line, choose the merged output folder, then click **Merge HF Datasets**. If you open the site from your laptop through a cloud forwarded port, these paths are still paths on the cloud machine running `viewer_server.py`.
 
 The **Push To Hugging Face** form can push any server-side `hf_dataset` path. Click **Load Columns** to choose which columns to upload; leaving the columns field empty pushes all columns.
+
+## Datasets Cleaner
+
+Open **Datasets Cleaner**.
+
+The first cleaning phase removes rows that fail either check:
+
+- Whisper transcription CER above the threshold, default `0.6`
+- Transcript length outside the chars/sec range, default `5` to `22`
+
+Choose **Save cleaned copy** and enter a new output folder, or choose **Override original dataset**. When the job finishes, the page shows the removed sample count, the saved dataset path, and a JSON report path with the bad-sample details.
+
+Install the cleaner dependencies in the same environment running `viewer_server.py`:
+
+```bash
+pip install -r synthetic_cs_dataset/requirements.txt
+```
 
 Before pushing, put your token in the cloud/server environment. The easiest project-local option is:
 

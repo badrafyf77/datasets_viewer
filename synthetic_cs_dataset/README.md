@@ -25,7 +25,7 @@ Bad:
 Install the Python packages you need for the stages you will run:
 
 ```bash
-pip install openai pyyaml tqdm pandas soundfile librosa numpy datasets jsonlines
+pip install openai openai-whisper pyyaml tqdm pandas soundfile librosa numpy datasets jsonlines jiwer
 ```
 
 For audio generation, also install your OmniVoice environment and make sure GPU/CUDA dependencies are available.

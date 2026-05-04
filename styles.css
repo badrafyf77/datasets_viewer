@@ -475,6 +475,7 @@ summary:focus-visible {
   background: var(--surface-soft);
   padding: 12px;
   overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .progress-card {

@@ -42,6 +42,7 @@ const state = {
   syntheticTestAvailable: false,
   hfImportAvailable: false,
   hfDatasetToolsAvailable: false,
+  datasetCleanerAvailable: false,
   generationJobId: null,
   generationPollTimer: null,
   hfImportJobId: null,
@@ -50,6 +51,8 @@ const state = {
   hfMergePollTimer: null,
   hfPushJobId: null,
   hfPushPollTimer: null,
+  cleanerJobId: null,
+  cleanerPollTimer: null,
   mergedHfDatasetPath: "",
   hfPushColumns: [],
 };
@@ -57,8 +60,10 @@ const state = {
 const els = {
   navViewer: document.getElementById("navViewer"),
   navGenerator: document.getElementById("navGenerator"),
+  navCleaner: document.getElementById("navCleaner"),
   datasetPage: document.getElementById("datasetPage"),
   generatorPage: document.getElementById("generatorPage"),
+  cleanerPage: document.getElementById("cleanerPage"),
   messagePanel: document.getElementById("messagePanel"),
   messageType: document.getElementById("messageType"),
   messageTitle: document.getElementById("messageTitle"),
@@ -164,6 +169,29 @@ const els = {
   hfPushProgressPercent: document.getElementById("hfPushProgressPercent"),
   hfPushProgressFill: document.getElementById("hfPushProgressFill"),
   hfPushProgressDetails: document.getElementById("hfPushProgressDetails"),
+  cleanerForm: document.getElementById("cleanerForm"),
+  cleanerDatasetPathInput: document.getElementById("cleanerDatasetPathInput"),
+  cleanerTranscriptColumnInput: document.getElementById("cleanerTranscriptColumnInput"),
+  cleanerAudioColumnInput: document.getElementById("cleanerAudioColumnInput"),
+  cleanerWhisperModelInput: document.getElementById("cleanerWhisperModelInput"),
+  cleanerLanguageInput: document.getElementById("cleanerLanguageInput"),
+  cleanerCerThresholdInput: document.getElementById("cleanerCerThresholdInput"),
+  cleanerMinCpsInput: document.getElementById("cleanerMinCpsInput"),
+  cleanerMaxCpsInput: document.getElementById("cleanerMaxCpsInput"),
+  cleanerUseWhisperInput: document.getElementById("cleanerUseWhisperInput"),
+  cleanerUseCpsInput: document.getElementById("cleanerUseCpsInput"),
+  cleanerSaveModeInput: document.getElementById("cleanerSaveModeInput"),
+  cleanerOutputPathField: document.getElementById("cleanerOutputPathField"),
+  cleanerOutputPathInput: document.getElementById("cleanerOutputPathInput"),
+  cleanerOverwriteOutputField: document.getElementById("cleanerOverwriteOutputField"),
+  cleanerOverwriteOutputInput: document.getElementById("cleanerOverwriteOutputInput"),
+  runCleanerButton: document.getElementById("runCleanerButton"),
+  cleanerProgressCard: document.getElementById("cleanerProgressCard"),
+  cleanerProgressLabel: document.getElementById("cleanerProgressLabel"),
+  cleanerProgressPercent: document.getElementById("cleanerProgressPercent"),
+  cleanerProgressFill: document.getElementById("cleanerProgressFill"),
+  cleanerProgressDetails: document.getElementById("cleanerProgressDetails"),
+  cleanerResult: document.getElementById("cleanerResult"),
   toast: document.getElementById("toast"),
 };
 
@@ -259,8 +287,10 @@ function switchPage(page) {
   state.activePage = page;
   els.datasetPage.hidden = page !== "viewer";
   els.generatorPage.hidden = page !== "generator";
+  if (els.cleanerPage) els.cleanerPage.hidden = page !== "cleaner";
   els.navViewer.classList.toggle("is-active", page === "viewer");
   els.navGenerator.classList.toggle("is-active", page === "generator");
+  if (els.navCleaner) els.navCleaner.classList.toggle("is-active", page === "cleaner");
 }
 
 async function loadServerDataset({ silent = false, path = "", maxRows = 0 } = {}) {
@@ -318,22 +348,27 @@ async function detectServerFeatures() {
     state.syntheticTestAvailable = features.includes("synthetic-test");
     state.hfImportAvailable = features.includes("hf-dataset-import");
     state.hfDatasetToolsAvailable = features.includes("hf-dataset-merge") && features.includes("hf-dataset-push");
+    state.datasetCleanerAvailable = features.includes("dataset-cleaner");
     if (payload.default_dataset_path && els.datasetPathInput) {
       els.datasetPathInput.value = payload.default_dataset_path;
+    }
+    if (payload.default_dataset_path && els.cleanerDatasetPathInput) {
+      els.cleanerDatasetPathInput.value = payload.default_dataset_path;
     }
     if (payload.default_max_rows !== undefined && els.maxRowsInput) {
       els.maxRowsInput.value = String(payload.default_max_rows);
     }
     if (els.serverInfoText) {
-      els.serverInfoText.textContent = "Backend ready. Dataset loading and generator actions are available.";
+      els.serverInfoText.textContent = "Backend ready. Dataset loading, generation, and cleaning actions are available.";
     }
   } catch {
     state.serverAvailable = false;
     state.syntheticTestAvailable = false;
     state.hfImportAvailable = false;
     state.hfDatasetToolsAvailable = false;
+    state.datasetCleanerAvailable = false;
     if (els.serverInfoText) {
-      els.serverInfoText.textContent = "Static mode. Use viewer_server.py to load server paths or generate audio.";
+      els.serverInfoText.textContent = "Static mode. Use viewer_server.py to load server paths, generate audio, or clean datasets.";
     }
   }
 
@@ -378,6 +413,12 @@ async function detectServerFeatures() {
     els.loadHfColumnsButton.disabled = !state.hfDatasetToolsAvailable;
     els.loadHfColumnsButton.title = state.hfDatasetToolsAvailable
       ? "Load columns from this Hugging Face dataset path."
+      : "Requires python3 viewer_server.py.";
+  }
+  if (els.runCleanerButton) {
+    els.runCleanerButton.disabled = !state.datasetCleanerAvailable;
+    els.runCleanerButton.title = state.datasetCleanerAvailable
+      ? "Run bad-sample removal."
       : "Requires python3 viewer_server.py.";
   }
 }
@@ -1042,6 +1083,183 @@ async function pollHfPushStatus() {
     els.pushHfDatasetButton.disabled = false;
     els.pushHfDatasetButton.textContent = "Push To Hugging Face";
     showError("Could not read Hugging Face push status", error);
+  }
+}
+
+function setCleanerSaveModeState() {
+  const isOverwrite = els.cleanerSaveModeInput?.value === "overwrite";
+  if (els.cleanerOutputPathField) els.cleanerOutputPathField.hidden = isOverwrite;
+  if (els.cleanerOverwriteOutputField) els.cleanerOverwriteOutputField.hidden = isOverwrite;
+}
+
+function setCleanerProgress(status = {}) {
+  setProgressElements(
+    {
+      card: els.cleanerProgressCard,
+      fill: els.cleanerProgressFill,
+      percent: els.cleanerProgressPercent,
+      label: els.cleanerProgressLabel,
+      details: els.cleanerProgressDetails,
+    },
+    status,
+  );
+}
+
+function cleanerParamsFromForm() {
+  return {
+    dataset_path: els.cleanerDatasetPathInput?.value.trim() || "",
+    transcript_column: els.cleanerTranscriptColumnInput?.value.trim() || "",
+    audio_column: els.cleanerAudioColumnInput?.value.trim() || "",
+    whisper_model: els.cleanerWhisperModelInput?.value.trim() || "large-v3-turbo",
+    language: els.cleanerLanguageInput?.value.trim() || "ar",
+    cer_threshold: Number(els.cleanerCerThresholdInput?.value || 0.6),
+    min_cps: Number(els.cleanerMinCpsInput?.value || 5),
+    max_cps: Number(els.cleanerMaxCpsInput?.value || 22),
+    use_whisper: Boolean(els.cleanerUseWhisperInput?.checked),
+    use_cps: Boolean(els.cleanerUseCpsInput?.checked),
+    output_mode: els.cleanerSaveModeInput?.value || "copy",
+    output_path: els.cleanerOutputPathInput?.value.trim() || "",
+    overwrite_output: Boolean(els.cleanerOverwriteOutputInput?.checked),
+  };
+}
+
+function formatSplitCounts(counts = {}) {
+  const entries = Object.entries(counts);
+  if (!entries.length) return "";
+  return entries.map(([split, count]) => `${split}: ${formatNumber(count)}`).join(", ");
+}
+
+function renderCleanerResult(result = {}) {
+  if (!els.cleanerResult) return;
+  const removed = Number(result.removed_rows || 0);
+  const total = Number(result.total_rows || 0);
+  const kept = Number(result.kept_rows || 0);
+  const outputPath = result.output_path || "";
+  const reportPath = result.report_path || "";
+  const removedBySplit = formatSplitCounts(result.removed_by_split);
+  const preview = Array.isArray(result.bad_samples_preview) ? result.bad_samples_preview.slice(0, 8) : [];
+  const previewLines = preview.map((sample) => {
+    const row = sample.row !== undefined ? `row ${formatNumber(Number(sample.row) + 1)}` : "row ?";
+    const split = sample.split || "split";
+    const reason = sample.reason || "failed";
+    const cer = sample.cer !== undefined ? `, CER ${sample.cer}` : "";
+    const cps = sample.chars_per_second !== undefined ? `, ${sample.chars_per_second} chars/sec` : "";
+    const id = sample.id ? `, ${sample.id}` : "";
+    return `- ${split} ${row}${id}: ${reason}${cer}${cps}`;
+  });
+
+  els.cleanerResult.hidden = false;
+  els.cleanerResult.textContent = [
+    `Removed ${formatNumber(removed)} of ${formatNumber(total)} sample(s).`,
+    `Kept ${formatNumber(kept)} sample(s).`,
+    removedBySplit ? `Removed by split: ${removedBySplit}.` : "",
+    outputPath ? `Saved dataset: ${outputPath}` : "",
+    reportPath ? `Report: ${reportPath}` : "",
+    previewLines.length ? `Preview:\n${previewLines.join("\n")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+async function startDatasetCleaner(event) {
+  event.preventDefault();
+  clearMessage();
+  if (!state.datasetCleanerAvailable) {
+    showError(
+      "Dataset cleaner unavailable",
+      "Cleaning needs the Python backend.",
+      "Start the app with `python3 viewer_server.py --host 0.0.0.0 --port 8000`.",
+    );
+    return;
+  }
+
+  const params = cleanerParamsFromForm();
+  if (!params.dataset_path) {
+    showError("Missing dataset path", "Enter the Hugging Face dataset folder path before cleaning.");
+    return;
+  }
+  if (!params.use_whisper && !params.use_cps) {
+    showError("No cleaner checks selected", "Enable Whisper CER, chars/sec, or both.");
+    return;
+  }
+  if (params.min_cps > params.max_cps) {
+    showError("Invalid chars/sec range", "Min chars/sec must be less than or equal to max chars/sec.");
+    return;
+  }
+  if (params.output_mode === "copy" && !params.output_path) {
+    showError("Missing output path", "Enter a destination for the cleaned dataset copy.");
+    return;
+  }
+  if (params.output_mode === "overwrite") {
+    const confirmed = window.confirm(`Override the original dataset at ${params.dataset_path}?`);
+    if (!confirmed) return;
+  }
+
+  window.clearInterval(state.cleanerPollTimer);
+  state.cleanerJobId = null;
+  if (els.cleanerResult) els.cleanerResult.hidden = true;
+  els.runCleanerButton.disabled = true;
+  els.runCleanerButton.textContent = "Cleaning...";
+  setCleanerProgress({ percent: 1, stage: "Starting", message: "Preparing the bad-sample removal job..." });
+
+  try {
+    const response = await fetch("./api/cleaner/bad-samples/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    state.cleanerJobId = payload.job_id;
+    pollDatasetCleanerStatus();
+    state.cleanerPollTimer = window.setInterval(pollDatasetCleanerStatus, 2000);
+  } catch (error) {
+    els.runCleanerButton.disabled = false;
+    els.runCleanerButton.textContent = "Run Cleaner";
+    showError("Could not start dataset cleaner", error);
+  }
+}
+
+async function pollDatasetCleanerStatus() {
+  if (!state.cleanerJobId) return;
+  try {
+    const response = await fetch(`./api/cleaner/status?id=${encodeURIComponent(state.cleanerJobId)}`, {
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    setCleanerProgress(payload.job);
+
+    if (payload.job.status === "completed") {
+      window.clearInterval(state.cleanerPollTimer);
+      els.runCleanerButton.disabled = false;
+      els.runCleanerButton.textContent = "Run Cleaner";
+      const result = payload.job.result || {};
+      const outputPath = result.output_path || "";
+      renderCleanerResult(result);
+      if (outputPath) {
+        if (els.datasetPathInput) els.datasetPathInput.value = outputPath;
+        if (els.cleanerDatasetPathInput) els.cleanerDatasetPathInput.value = outputPath;
+        const maxRows = Number(els.maxRowsInput?.value || 0);
+        await loadServerDataset({ path: outputPath, maxRows, silent: true });
+      }
+      showMessage(
+        "success",
+        "Dataset cleaner completed",
+        `Removed ${formatNumber(result.removed_rows || 0)} of ${formatNumber(result.total_rows || 0)} sample(s).`,
+        outputPath,
+      );
+    } else if (payload.job.status === "failed") {
+      window.clearInterval(state.cleanerPollTimer);
+      els.runCleanerButton.disabled = false;
+      els.runCleanerButton.textContent = "Run Cleaner";
+      showError("Dataset cleaner failed", payload.job.error || "The cleaner job failed.", payload.job.log_tail || "");
+    }
+  } catch (error) {
+    window.clearInterval(state.cleanerPollTimer);
+    els.runCleanerButton.disabled = false;
+    els.runCleanerButton.textContent = "Run Cleaner";
+    showError("Could not read dataset cleaner status", error);
   }
 }
 
@@ -2398,12 +2616,15 @@ function bindEvents() {
 
   on(els.navViewer, "click", () => switchPage("viewer"));
   on(els.navGenerator, "click", () => switchPage("generator"));
+  on(els.navCleaner, "click", () => switchPage("cleaner"));
   on(els.messageClose, "click", clearMessage);
   on(els.datasetLoadForm, "submit", loadDatasetFromForm);
   on(els.hfImportForm, "submit", startHfDatasetImport);
   on(els.generatorForm, "submit", startGeneration);
   on(els.hfMergeForm, "submit", startHfDatasetMerge);
   on(els.hfPushForm, "submit", startHfDatasetPush);
+  on(els.cleanerForm, "submit", startDatasetCleaner);
+  on(els.cleanerSaveModeInput, "change", setCleanerSaveModeState);
   on(els.loadHfColumnsButton, "click", () => loadHfColumns());
   on(els.hfPushDatasetPathInput, "input", () => {
     state.hfPushColumns = [];
@@ -2516,6 +2737,7 @@ function bindEvents() {
 }
 
 bindEvents();
+setCleanerSaveModeState();
 render();
 switchPage("viewer");
 detectServerFeatures();

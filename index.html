@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Moroccan ASR Dataset Studio</title>
-    <link rel="stylesheet" href="./styles.css?v=studio4" />
+    <link rel="stylesheet" href="./styles.css?v=studio5" />
   </head>
   <body>
     <div class="app-shell">
@@ -25,6 +25,10 @@
           <button class="nav-button" id="navGenerator" type="button">
             <span>Darija Code-Switch Generator</span>
             <small>Create synthetic text and TTS audio</small>
+          </button>
+          <button class="nav-button" id="navCleaner" type="button">
+            <span>Datasets Cleaner</span>
+            <small>Remove samples that fail ASR checks</small>
           </button>
         </nav>
 
@@ -599,11 +603,155 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
             </div>
           </section>
         </section>
+
+        <section class="workspace-page" id="cleanerPage" hidden>
+          <header class="page-header">
+            <div>
+              <p class="eyebrow">Datasets Cleaner</p>
+              <h2>Remove bad samples from a saved speech dataset.</h2>
+              <p>
+                Run Whisper CER and transcript-duration checks, then save a
+                cleaned Hugging Face dataset copy or replace the original.
+              </p>
+            </div>
+          </header>
+
+          <section class="panel form-panel">
+            <div class="panel-heading">
+              <h2>Bad Sample Removal</h2>
+            </div>
+            <form class="form-grid cleaner-form" id="cleanerForm">
+              <label class="wide-field">
+                <span>Dataset path</span>
+                <input
+                  id="cleanerDatasetPathInput"
+                  type="text"
+                  value="/teamspace/studios/this_studio/darija_clean"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Transcript column</span>
+                <input
+                  id="cleanerTranscriptColumnInput"
+                  type="text"
+                  placeholder="text"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Audio column</span>
+                <input
+                  id="cleanerAudioColumnInput"
+                  type="text"
+                  placeholder="audio"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Whisper model</span>
+                <input
+                  id="cleanerWhisperModelInput"
+                  type="text"
+                  value="large-v3-turbo"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Language</span>
+                <input
+                  id="cleanerLanguageInput"
+                  type="text"
+                  value="ar"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>CER threshold</span>
+                <input
+                  id="cleanerCerThresholdInput"
+                  type="number"
+                  min="0"
+                  step="0.05"
+                  value="0.6"
+                />
+              </label>
+              <label>
+                <span>Min chars/sec</span>
+                <input
+                  id="cleanerMinCpsInput"
+                  type="number"
+                  min="0.1"
+                  step="0.5"
+                  value="5"
+                />
+              </label>
+              <label>
+                <span>Max chars/sec</span>
+                <input
+                  id="cleanerMaxCpsInput"
+                  type="number"
+                  min="0.1"
+                  step="0.5"
+                  value="22"
+                />
+              </label>
+              <label class="checkbox-field">
+                <input id="cleanerUseWhisperInput" type="checkbox" checked />
+                <span>Whisper CER</span>
+              </label>
+              <label class="checkbox-field">
+                <input id="cleanerUseCpsInput" type="checkbox" checked />
+                <span>Chars/sec</span>
+              </label>
+              <label class="wide-field">
+                <span>Save mode</span>
+                <select id="cleanerSaveModeInput">
+                  <option value="copy" selected>Save cleaned copy</option>
+                  <option value="overwrite">Override original dataset</option>
+                </select>
+              </label>
+              <label class="wide-field" id="cleanerOutputPathField">
+                <span>New dataset path</span>
+                <input
+                  id="cleanerOutputPathInput"
+                  type="text"
+                  value="synthetic_cs_dataset/data_cleaned/hf_dataset"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="checkbox-field" id="cleanerOverwriteOutputField">
+                <input id="cleanerOverwriteOutputInput" type="checkbox" />
+                <span>Overwrite output folder</span>
+              </label>
+              <button
+                class="button primary"
+                id="runCleanerButton"
+                type="submit"
+              >
+                Run Cleaner
+              </button>
+            </form>
+
+            <div class="progress-card" id="cleanerProgressCard" hidden>
+              <div class="progress-header">
+                <strong id="cleanerProgressLabel">Waiting</strong>
+                <span id="cleanerProgressPercent">0%</span>
+              </div>
+              <div class="progress-track" aria-label="Dataset cleaner progress">
+                <div class="progress-fill" id="cleanerProgressFill"></div>
+              </div>
+              <p class="hint" id="cleanerProgressDetails">No cleaner job running.</p>
+            </div>
+
+            <div class="result-box" id="cleanerResult" hidden></div>
+          </section>
+        </section>
       </main>
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="./app.js?v=studio4"></script>
+    <script src="./app.js?v=studio5"></script>
   </body>
 </html>

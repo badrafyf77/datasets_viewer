@@ -440,6 +440,7 @@ summary:focus-visible {
   outline-offset: 2px;
 }
 
+.form-grid .checkbox-field,
 .checkbox-field {
   display: inline-flex;
   min-height: 38px;

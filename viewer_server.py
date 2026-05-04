@@ -12,6 +12,7 @@ import argparse
 import json
 import mimetypes
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -78,6 +79,7 @@ class DatasetViewerHandler(SimpleHTTPRequestHandler):
                         "audio",
                         "synthetic-test",
                         "generation-jobs",
+                        "hf-dataset-import",
                         "hf-dataset-merge",
                         "hf-dataset-push",
                     ],
@@ -119,6 +121,9 @@ class DatasetViewerHandler(SimpleHTTPRequestHandler):
             return
         if parsed.path == "/api/hf/merge/start":
             self.start_hf_dataset_merge()
+            return
+        if parsed.path == "/api/hf/import/start":
+            self.start_hf_dataset_import()
             return
         if parsed.path == "/api/hf/push/start":
             self.start_hf_dataset_push()
@@ -350,6 +355,39 @@ class DatasetViewerHandler(SimpleHTTPRequestHandler):
 
         thread = threading.Thread(
             target=run_hf_dataset_merge_job,
+            args=(job_id, params, self.site_root),
+            daemon=True,
+        )
+        thread.start()
+        self.send_json({"ok": True, "job_id": job_id, "job": public_job(job)})
+
+    def start_hf_dataset_import(self) -> None:
+        try:
+            params = self.read_json_body()
+        except ValueError as exc:
+            self.send_error_json(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+
+        job_id = uuid.uuid4().hex[:12]
+        job = {
+            "id": job_id,
+            "ok": True,
+            "status": "queued",
+            "stage": "Queued",
+            "percent": 0,
+            "message": "Waiting to import a Hugging Face dataset.",
+            "error": "",
+            "log_tail": "",
+            "started_at": time.time(),
+            "updated_at": time.time(),
+            "params": params,
+            "result": {},
+        }
+        with HF_DATASET_LOCK:
+            HF_DATASET_JOBS[job_id] = job
+
+        thread = threading.Thread(
+            target=run_hf_dataset_import_job,
             args=(job_id, params, self.site_root),
             daemon=True,
         )
@@ -608,6 +646,56 @@ def collect_column_values(value) -> list[str]:
     return columns
 
 
+def normalize_hf_dataset_repo_id(value: str) -> str:
+    text = str(value or "").strip().strip("\"'")
+    if text.startswith(("http://", "https://")):
+        parsed = urlparse(text)
+        if not parsed.netloc.endswith("huggingface.co"):
+            raise RuntimeError("Hugging Face dataset URL must be on huggingface.co.")
+        parts = [part for part in parsed.path.strip("/").split("/") if part]
+        if parts and parts[0] == "datasets":
+            parts = parts[1:]
+        if len(parts) >= 2:
+            text = "/".join(parts[:2])
+        elif parts:
+            text = parts[0]
+        else:
+            text = ""
+
+    if text.startswith("datasets/"):
+        text = text[len("datasets/") :]
+    text = text.strip("/")
+    if not text:
+        raise RuntimeError("Enter a Hugging Face dataset repo id, for example `mozilla-foundation/common_voice_17_0`.")
+    if re.search(r"\s", text):
+        raise RuntimeError("Hugging Face dataset repo id cannot contain spaces.")
+    if not re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)?$", text):
+        raise RuntimeError("Enter a valid Hugging Face dataset repo id like `owner/name`.")
+    return text
+
+
+def safe_slug(*parts: str) -> str:
+    raw = "-".join(str(part or "").strip() for part in parts if str(part or "").strip())
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", raw.replace("/", "-")).strip("-._")
+    return slug[:120] or "dataset"
+
+
+def unique_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+    for index in range(2, 1000):
+        candidate = path.with_name(f"{path.name}-{index}")
+        if not candidate.exists():
+            return candidate
+    raise RuntimeError(f"Could not choose a unique output path near {path}")
+
+
+def default_hf_import_path(site_root: Path, repo_id: str, config_name: str, split: str, revision: str) -> Path:
+    pipeline_dir = site_root / "synthetic_cs_dataset"
+    slug = safe_slug(repo_id, config_name, split, revision)
+    return (pipeline_dir / "data" / "hf_imports" / slug).resolve()
+
+
 def resolve_hf_dataset_path(path_value: str, site_root: Path, pipeline_dir: Path, must_exist: bool) -> Path:
     raw = Path(str(path_value or "").strip()).expanduser()
     if raw.is_absolute():
@@ -740,6 +828,180 @@ def guarded_remove_output(path: Path, site_root: Path, pipeline_dir: Path) -> No
         shutil.rmtree(resolved)
     elif resolved.exists():
         resolved.unlink()
+
+
+def dataset_shape_payload(loaded, single_split_name: str = "train") -> dict:
+    try:
+        from datasets import Dataset, DatasetDict
+    except ImportError as exc:
+        raise RuntimeError("Install the `datasets` package before reading Hugging Face dataset details.") from exc
+
+    if isinstance(loaded, Dataset):
+        split_name = single_split_name or "train"
+        return {
+            "rows_by_split": {split_name: len(loaded)},
+            "columns_by_split": {split_name: list(loaded.column_names)},
+        }
+    if isinstance(loaded, DatasetDict):
+        return {
+            "rows_by_split": {split: len(dataset) for split, dataset in loaded.items()},
+            "columns_by_split": {split: list(dataset.column_names) for split, dataset in loaded.items()},
+        }
+    raise RuntimeError("Unsupported Hugging Face dataset type.")
+
+
+def load_dataset_from_hub(
+    repo_id: str,
+    config_name: str,
+    split: str,
+    revision: str,
+    token: str,
+    trust_remote_code: bool,
+):
+    try:
+        from datasets import Dataset, DatasetDict, load_dataset
+    except ImportError as exc:
+        raise RuntimeError("Install the `datasets` package before importing datasets from Hugging Face.") from exc
+
+    kwargs = {}
+    if config_name:
+        kwargs["name"] = config_name
+    if split:
+        kwargs["split"] = split
+    if revision:
+        kwargs["revision"] = revision
+    if token:
+        kwargs["token"] = token
+    if trust_remote_code:
+        kwargs["trust_remote_code"] = True
+
+    try:
+        loaded = load_dataset(repo_id, **kwargs)
+    except TypeError as exc:
+        fallback_kwargs = dict(kwargs)
+        changed = False
+        text = str(exc)
+        if "token" in text and "token" in fallback_kwargs:
+            fallback_kwargs.pop("token", None)
+            fallback_kwargs["use_auth_token"] = token
+            changed = True
+        if "trust_remote_code" in text and "trust_remote_code" in fallback_kwargs:
+            fallback_kwargs.pop("trust_remote_code", None)
+            changed = True
+        if not changed:
+            raise
+        loaded = load_dataset(repo_id, **fallback_kwargs)
+
+    if not isinstance(loaded, (Dataset, DatasetDict)):
+        raise RuntimeError(f"Unsupported dataset type returned by Hugging Face for {repo_id}")
+    return loaded
+
+
+def run_hf_dataset_import_job(job_id: str, params: dict, site_root: Path) -> None:
+    pipeline_dir = site_root / "synthetic_cs_dataset"
+    output_path = None
+    try:
+        repo_id = normalize_hf_dataset_repo_id(str(params.get("repo_id") or ""))
+        config_name = str(params.get("config_name") or "").strip().strip("\"'")
+        split = str(params.get("split") or "").strip().strip("\"'")
+        revision = str(params.get("revision") or "").strip().strip("\"'")
+        output_value = str(params.get("output_path") or "").strip().strip("\"'")
+        overwrite = bool(params.get("overwrite"))
+        trust_remote_code = bool(params.get("trust_remote_code"))
+
+        if output_value:
+            output_path = resolve_hf_dataset_path(output_value, site_root, pipeline_dir, must_exist=False)
+            if output_path.exists() and not overwrite:
+                raise RuntimeError(f"Output path already exists: {output_path}. Enable overwrite or choose another folder.")
+        else:
+            output_path = unique_path(default_hf_import_path(site_root, repo_id, config_name, split, revision))
+
+        update_hf_dataset_job(
+            job_id,
+            status="running",
+            stage="Preparing",
+            percent=4,
+            message=f"Preparing to import {repo_id}.",
+            result={"repo_id": repo_id, "output_path": str(output_path)},
+        )
+
+        if output_path.exists() and overwrite:
+            update_hf_dataset_job(
+                job_id,
+                stage="Preparing",
+                percent=7,
+                message=f"Removing existing local folder: {output_path}",
+            )
+            guarded_remove_output(output_path, site_root, pipeline_dir)
+
+        token = get_hf_token(site_root)
+        load_label = repo_id
+        if config_name:
+            load_label += f" / {config_name}"
+        if split:
+            load_label += f" / {split}"
+
+        update_hf_dataset_job(
+            job_id,
+            stage="Downloading",
+            percent=12,
+            message=f"Loading {load_label} from Hugging Face. Large datasets can take a while.",
+        )
+        loaded = load_dataset_from_hub(repo_id, config_name, split, revision, token, trust_remote_code)
+        shape = dataset_shape_payload(loaded, split or "train")
+
+        update_hf_dataset_job(
+            job_id,
+            stage="Saving",
+            percent=78,
+            message=f"Saving imported dataset to {output_path}",
+            result={
+                "repo_id": repo_id,
+                "config_name": config_name,
+                "split": split,
+                "revision": revision,
+                "output_path": str(output_path),
+                **shape,
+            },
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        loaded.save_to_disk(str(output_path))
+        DatasetViewerHandler.dataset_cache.clear()
+
+        total_rows = sum(shape["rows_by_split"].values())
+        update_hf_dataset_job(
+            job_id,
+            status="completed",
+            stage="Completed",
+            percent=100,
+            message=f"Imported {total_rows} row(s) from {repo_id} into {output_path}",
+            result={
+                "repo_id": repo_id,
+                "config_name": config_name,
+                "split": split,
+                "revision": revision,
+                "output_path": str(output_path),
+                **shape,
+            },
+        )
+    except Exception as exc:
+        hint = ""
+        text = str(exc)
+        if "401" in text or "Unauthorized" in text or "token" in text.lower():
+            hint = (
+                "\nFor private or gated datasets, set HF_TOKEN or HUGGINGFACE_TOKEN in the environment running "
+                "viewer_server.py, add HF_TOKEN to synthetic_cs_dataset/.env, or run `huggingface-cli login` there."
+            )
+        update_hf_dataset_job(
+            job_id,
+            status="failed",
+            stage="Failed",
+            percent=100,
+            message="Hugging Face dataset import failed.",
+            error=f"{text}{hint}",
+            log_tail=f"{text}{hint}",
+            result={"output_path": str(output_path) if output_path else ""},
+        )
 
 
 def run_hf_dataset_merge_job(job_id: str, params: dict, site_root: Path) -> None:

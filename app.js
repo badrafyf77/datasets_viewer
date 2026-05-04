@@ -40,9 +40,12 @@ const state = {
   activePage: "viewer",
   serverAvailable: false,
   syntheticTestAvailable: false,
+  hfImportAvailable: false,
   hfDatasetToolsAvailable: false,
   generationJobId: null,
   generationPollTimer: null,
+  hfImportJobId: null,
+  hfImportPollTimer: null,
   hfMergeJobId: null,
   hfMergePollTimer: null,
   hfPushJobId: null,
@@ -68,6 +71,20 @@ const els = {
   datasetPathInput: document.getElementById("datasetPathInput"),
   maxRowsInput: document.getElementById("maxRowsInput"),
   loadDatasetButton: document.getElementById("loadDatasetButton"),
+  hfImportForm: document.getElementById("hfImportForm"),
+  hfImportRepoInput: document.getElementById("hfImportRepoInput"),
+  hfImportConfigInput: document.getElementById("hfImportConfigInput"),
+  hfImportSplitInput: document.getElementById("hfImportSplitInput"),
+  hfImportRevisionInput: document.getElementById("hfImportRevisionInput"),
+  hfImportOutputInput: document.getElementById("hfImportOutputInput"),
+  hfImportOverwriteInput: document.getElementById("hfImportOverwriteInput"),
+  hfImportTrustRemoteCodeInput: document.getElementById("hfImportTrustRemoteCodeInput"),
+  importHfDatasetButton: document.getElementById("importHfDatasetButton"),
+  hfImportProgressCard: document.getElementById("hfImportProgressCard"),
+  hfImportProgressLabel: document.getElementById("hfImportProgressLabel"),
+  hfImportProgressPercent: document.getElementById("hfImportProgressPercent"),
+  hfImportProgressFill: document.getElementById("hfImportProgressFill"),
+  hfImportProgressDetails: document.getElementById("hfImportProgressDetails"),
   fileInput: document.getElementById("fileInput"),
   filePickerInput: document.getElementById("filePickerInput"),
   folderInput: document.getElementById("folderInput"),
@@ -299,6 +316,7 @@ async function detectServerFeatures() {
     const features = Array.isArray(payload.features) ? payload.features : [];
     state.serverAvailable = true;
     state.syntheticTestAvailable = features.includes("synthetic-test");
+    state.hfImportAvailable = features.includes("hf-dataset-import");
     state.hfDatasetToolsAvailable = features.includes("hf-dataset-merge") && features.includes("hf-dataset-push");
     if (payload.default_dataset_path && els.datasetPathInput) {
       els.datasetPathInput.value = payload.default_dataset_path;
@@ -312,6 +330,7 @@ async function detectServerFeatures() {
   } catch {
     state.serverAvailable = false;
     state.syntheticTestAvailable = false;
+    state.hfImportAvailable = false;
     state.hfDatasetToolsAvailable = false;
     if (els.serverInfoText) {
       els.serverInfoText.textContent = "Static mode. Use viewer_server.py to load server paths or generate audio.";
@@ -329,6 +348,12 @@ async function detectServerFeatures() {
     els.loadDatasetButton.disabled = !state.serverAvailable;
     els.loadDatasetButton.title = state.serverAvailable
       ? "Load this server-side dataset path."
+      : "Requires python3 viewer_server.py.";
+  }
+  if (els.importHfDatasetButton) {
+    els.importHfDatasetButton.disabled = !state.hfImportAvailable;
+    els.importHfDatasetButton.title = state.hfImportAvailable
+      ? "Import this Hugging Face dataset to a local save_to_disk folder."
       : "Requires python3 viewer_server.py.";
   }
   if (els.generateDatasetButton) {
@@ -385,6 +410,126 @@ async function loadDatasetFromForm(event) {
     els.loadDatasetButton.disabled = false;
     els.loadDatasetButton.textContent = "Load Dataset";
     setBusy(false);
+  }
+}
+
+function hfImportParamsFromForm() {
+  return {
+    repo_id: els.hfImportRepoInput?.value.trim() || "",
+    config_name: els.hfImportConfigInput?.value.trim() || "",
+    split: els.hfImportSplitInput?.value.trim() || "",
+    revision: els.hfImportRevisionInput?.value.trim() || "",
+    output_path: els.hfImportOutputInput?.value.trim() || "",
+    overwrite: Boolean(els.hfImportOverwriteInput?.checked),
+    trust_remote_code: Boolean(els.hfImportTrustRemoteCodeInput?.checked),
+  };
+}
+
+function setHfImportProgress(status = {}) {
+  setProgressElements(
+    {
+      card: els.hfImportProgressCard,
+      fill: els.hfImportProgressFill,
+      percent: els.hfImportProgressPercent,
+      label: els.hfImportProgressLabel,
+      details: els.hfImportProgressDetails,
+    },
+    status,
+  );
+}
+
+async function startHfDatasetImport(event) {
+  event.preventDefault();
+  clearMessage();
+  if (!state.hfImportAvailable) {
+    showError(
+      "Hugging Face import unavailable",
+      "Importing from Hugging Face needs the Python backend.",
+      "Start the app with `python3 viewer_server.py --host 0.0.0.0 --port 8000`.",
+    );
+    return;
+  }
+
+  const params = hfImportParamsFromForm();
+  if (!params.repo_id || /\s/.test(params.repo_id)) {
+    showError("Invalid dataset repo", "Enter a Hugging Face dataset repo id like `owner/name`.");
+    return;
+  }
+
+  window.clearInterval(state.hfImportPollTimer);
+  state.hfImportJobId = null;
+  els.importHfDatasetButton.disabled = true;
+  els.importHfDatasetButton.textContent = "Importing...";
+  setHfImportProgress({ percent: 1, stage: "Starting", message: "Preparing the Hugging Face import..." });
+
+  try {
+    const response = await fetch("./api/hf/import/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    state.hfImportJobId = payload.job_id;
+    pollHfImportStatus();
+    state.hfImportPollTimer = window.setInterval(pollHfImportStatus, 2000);
+  } catch (error) {
+    els.importHfDatasetButton.disabled = false;
+    els.importHfDatasetButton.textContent = "Import Dataset";
+    showError("Could not start Hugging Face import", error);
+  }
+}
+
+async function pollHfImportStatus() {
+  if (!state.hfImportJobId) return;
+  try {
+    const response = await fetch(`./api/hf/status?id=${encodeURIComponent(state.hfImportJobId)}`, {
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    setHfImportProgress(payload.job);
+
+    if (payload.job.status === "completed") {
+      window.clearInterval(state.hfImportPollTimer);
+      els.importHfDatasetButton.disabled = false;
+      els.importHfDatasetButton.textContent = "Import Dataset";
+
+      const result = payload.job.result || {};
+      const outputPath = result.output_path || "";
+      if (outputPath) {
+        if (els.datasetPathInput) els.datasetPathInput.value = outputPath;
+        if (els.hfImportOutputInput && !els.hfImportOutputInput.value.trim()) {
+          els.hfImportOutputInput.value = outputPath;
+        }
+      }
+
+      const maxRows = Number(els.maxRowsInput?.value || 0);
+      const loaded = outputPath ? await loadServerDataset({ path: outputPath, maxRows, silent: true }) : false;
+      const splitSummary = formatRowsBySplit(result.rows_by_split);
+      if (loaded) {
+        switchPage("viewer");
+        showMessage(
+          "success",
+          "Hugging Face dataset imported",
+          splitSummary
+            ? `Saved locally and loaded into the viewer. Splits: ${splitSummary}.`
+            : "Saved locally and loaded into the viewer.",
+        );
+      } else {
+        showError("Imported but could not visualize", "The dataset was saved locally, but the viewer could not load it.", outputPath);
+      }
+    } else if (payload.job.status === "failed") {
+      window.clearInterval(state.hfImportPollTimer);
+      els.importHfDatasetButton.disabled = false;
+      els.importHfDatasetButton.textContent = "Import Dataset";
+      showError("Hugging Face import failed", payload.job.error || "The import job failed.", payload.job.log_tail || "");
+    }
+  } catch (error) {
+    window.clearInterval(state.hfImportPollTimer);
+    els.importHfDatasetButton.disabled = false;
+    els.importHfDatasetButton.textContent = "Import Dataset";
+    showError("Could not read Hugging Face import status", error);
   }
 }
 
@@ -2255,6 +2400,7 @@ function bindEvents() {
   on(els.navGenerator, "click", () => switchPage("generator"));
   on(els.messageClose, "click", clearMessage);
   on(els.datasetLoadForm, "submit", loadDatasetFromForm);
+  on(els.hfImportForm, "submit", startHfDatasetImport);
   on(els.generatorForm, "submit", startGeneration);
   on(els.hfMergeForm, "submit", startHfDatasetMerge);
   on(els.hfPushForm, "submit", startHfDatasetPush);

@@ -33,6 +33,15 @@ Open **Datasets Viewer**, set:
 
 Then click **Load Dataset**.
 
+To pull a dataset directly from the Hub, use **Import From Hugging Face**:
+
+- `Dataset repo id`: for example `owner/dataset-name`
+- `Subset/config`: optional, useful for datasets such as Common Voice language configs
+- `Split`: optional; leave empty to import all available splits
+- `Local folder`: optional; when empty, imports are saved under `synthetic_cs_dataset/data/hf_imports/`
+
+Click **Import Dataset**. The server downloads the dataset with `datasets.load_dataset`, saves it locally with `save_to_disk`, then loads the saved local path into the viewer. For private or gated datasets, set `HF_TOKEN` or authenticate with `huggingface-cli login` in the environment running `viewer_server.py`.
+
 The viewer supports Hugging Face `save_to_disk` datasets and DatasetDict folders through the Python server. It shows split tables, row stats, exact-value filters for columns such as `language_mix`, searchable value lists, distribution bars, total/visible hours when a duration column is present, column controls, pagination, export, and inline audio when audio paths are available.
 
 ## Darija Code-Switch Generator

@@ -105,6 +105,80 @@
             </form>
           </section>
 
+          <section class="panel form-panel">
+            <div class="panel-heading">
+              <h2>Import From Hugging Face</h2>
+            </div>
+            <form class="form-grid hf-import-form" id="hfImportForm">
+              <label class="wide-field">
+                <span>Dataset repo id</span>
+                <input
+                  id="hfImportRepoInput"
+                  type="text"
+                  placeholder="mozilla-foundation/common_voice_17_0"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Subset/config</span>
+                <input
+                  id="hfImportConfigInput"
+                  type="text"
+                  placeholder="ar"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Split</span>
+                <input
+                  id="hfImportSplitInput"
+                  type="text"
+                  placeholder="train"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="wide-field">
+                <span>Local folder</span>
+                <input
+                  id="hfImportOutputInput"
+                  type="text"
+                  placeholder="Leave empty for synthetic_cs_dataset/data/hf_imports/..."
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Revision</span>
+                <input
+                  id="hfImportRevisionInput"
+                  type="text"
+                  placeholder="main"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="checkbox-field">
+                <input id="hfImportOverwriteInput" type="checkbox" />
+                <span>Overwrite folder</span>
+              </label>
+              <label class="checkbox-field">
+                <input id="hfImportTrustRemoteCodeInput" type="checkbox" />
+                <span>Trust remote code</span>
+              </label>
+              <button class="button primary" id="importHfDatasetButton" type="submit">
+                Import Dataset
+              </button>
+            </form>
+            <div class="progress-card" id="hfImportProgressCard" hidden>
+              <div class="progress-header">
+                <strong id="hfImportProgressLabel">Waiting</strong>
+                <span id="hfImportProgressPercent">0%</span>
+              </div>
+              <div class="progress-track" aria-label="Hugging Face import progress">
+                <div class="progress-fill" id="hfImportProgressFill"></div>
+              </div>
+              <p class="hint" id="hfImportProgressDetails">No import running.</p>
+            </div>
+          </section>
+
           <section class="panel dataset-panel">
             <div class="panel-heading">
               <h2>Loaded Datasets</h2>

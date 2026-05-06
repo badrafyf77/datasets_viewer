@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Moroccan ASR Dataset Studio</title>
-    <link rel="stylesheet" href="./styles.css?v=studio6" />
+    <link rel="stylesheet" href="./styles.css?v=studio7" />
   </head>
   <body>
     <div class="app-shell">
@@ -610,8 +610,8 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
               <p class="eyebrow">Datasets Cleaner</p>
               <h2>Remove bad samples from a saved speech dataset.</h2>
               <p>
-                Remove bad audio/text pairs first, then remove repeated
-                transcript rows from the cleaned Hugging Face dataset.
+                Remove bad audio/text pairs, normalize transcript style, then
+                remove repeated transcript rows from the Hugging Face dataset.
               </p>
             </div>
           </header>
@@ -749,6 +749,114 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
 
           <section class="panel form-panel">
             <div class="panel-heading">
+              <h2>Transcript Normalization</h2>
+            </div>
+            <form class="form-grid cleaner-form" id="textNormalizerForm">
+              <label class="wide-field">
+                <span>Dataset path</span>
+                <input
+                  id="textNormalizerDatasetPathInput"
+                  type="text"
+                  value="/teamspace/studios/this_studio/darija_clean"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Transcript column</span>
+                <input
+                  id="textNormalizerTranscriptColumnInput"
+                  type="text"
+                  placeholder="text"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Output column</span>
+                <input
+                  id="textNormalizerOutputColumnInput"
+                  type="text"
+                  value="normalized_text"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Language column</span>
+                <input
+                  id="textNormalizerLanguageColumnInput"
+                  type="text"
+                  placeholder="lang"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Fallback language</span>
+                <input
+                  id="textNormalizerLanguageInput"
+                  type="text"
+                  placeholder="ary-fr-en"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Ta marbuta</span>
+                <select id="textNormalizerTaMarbutaInput">
+                  <option value="keep" selected>Keep ة</option>
+                  <option value="h">Final ة → ه</option>
+                </select>
+              </label>
+              <label class="checkbox-field">
+                <input id="textNormalizerStripAccentsInput" type="checkbox" />
+                <span>Strip French accents</span>
+              </label>
+              <label class="checkbox-field">
+                <input id="textNormalizerOverwriteTextInput" type="checkbox" />
+                <span>Overwrite transcript column</span>
+              </label>
+              <label class="wide-field">
+                <span>Save mode</span>
+                <select id="textNormalizerSaveModeInput">
+                  <option value="copy" selected>Save normalized copy</option>
+                  <option value="overwrite">Override original dataset</option>
+                </select>
+              </label>
+              <label class="wide-field" id="textNormalizerOutputPathField">
+                <span>New dataset path</span>
+                <input
+                  id="textNormalizerOutputPathInput"
+                  type="text"
+                  value="synthetic_cs_dataset/data_normalized/hf_dataset"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="checkbox-field" id="textNormalizerOverwriteOutputField">
+                <input id="textNormalizerOverwriteOutputInput" type="checkbox" />
+                <span>Overwrite output folder</span>
+              </label>
+              <button
+                class="button primary"
+                id="runTextNormalizerButton"
+                type="submit"
+              >
+                Normalize Text
+              </button>
+            </form>
+
+            <div class="progress-card" id="textNormalizerProgressCard" hidden>
+              <div class="progress-header">
+                <strong id="textNormalizerProgressLabel">Waiting</strong>
+                <span id="textNormalizerProgressPercent">0%</span>
+              </div>
+              <div class="progress-track" aria-label="Transcript normalization progress">
+                <div class="progress-fill" id="textNormalizerProgressFill"></div>
+              </div>
+              <p class="hint" id="textNormalizerProgressDetails">No normalization job running.</p>
+            </div>
+
+            <div class="result-box" id="textNormalizerResult" hidden></div>
+          </section>
+
+          <section class="panel form-panel">
+            <div class="panel-heading">
               <h2>Duplicate Text Removal</h2>
             </div>
             <form class="form-grid cleaner-form" id="duplicateCleanerForm">
@@ -822,6 +930,6 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="./app.js?v=studio6"></script>
+    <script src="./app.js?v=studio7"></script>
   </body>
 </html>

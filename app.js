@@ -53,6 +53,8 @@ const state = {
   hfPushPollTimer: null,
   cleanerJobId: null,
   cleanerPollTimer: null,
+  textNormalizerJobId: null,
+  textNormalizerPollTimer: null,
   duplicateCleanerJobId: null,
   duplicateCleanerPollTimer: null,
   mergedHfDatasetPath: "",
@@ -194,6 +196,27 @@ const els = {
   cleanerProgressFill: document.getElementById("cleanerProgressFill"),
   cleanerProgressDetails: document.getElementById("cleanerProgressDetails"),
   cleanerResult: document.getElementById("cleanerResult"),
+  textNormalizerForm: document.getElementById("textNormalizerForm"),
+  textNormalizerDatasetPathInput: document.getElementById("textNormalizerDatasetPathInput"),
+  textNormalizerTranscriptColumnInput: document.getElementById("textNormalizerTranscriptColumnInput"),
+  textNormalizerOutputColumnInput: document.getElementById("textNormalizerOutputColumnInput"),
+  textNormalizerLanguageColumnInput: document.getElementById("textNormalizerLanguageColumnInput"),
+  textNormalizerLanguageInput: document.getElementById("textNormalizerLanguageInput"),
+  textNormalizerTaMarbutaInput: document.getElementById("textNormalizerTaMarbutaInput"),
+  textNormalizerStripAccentsInput: document.getElementById("textNormalizerStripAccentsInput"),
+  textNormalizerOverwriteTextInput: document.getElementById("textNormalizerOverwriteTextInput"),
+  textNormalizerSaveModeInput: document.getElementById("textNormalizerSaveModeInput"),
+  textNormalizerOutputPathField: document.getElementById("textNormalizerOutputPathField"),
+  textNormalizerOutputPathInput: document.getElementById("textNormalizerOutputPathInput"),
+  textNormalizerOverwriteOutputField: document.getElementById("textNormalizerOverwriteOutputField"),
+  textNormalizerOverwriteOutputInput: document.getElementById("textNormalizerOverwriteOutputInput"),
+  runTextNormalizerButton: document.getElementById("runTextNormalizerButton"),
+  textNormalizerProgressCard: document.getElementById("textNormalizerProgressCard"),
+  textNormalizerProgressLabel: document.getElementById("textNormalizerProgressLabel"),
+  textNormalizerProgressPercent: document.getElementById("textNormalizerProgressPercent"),
+  textNormalizerProgressFill: document.getElementById("textNormalizerProgressFill"),
+  textNormalizerProgressDetails: document.getElementById("textNormalizerProgressDetails"),
+  textNormalizerResult: document.getElementById("textNormalizerResult"),
   duplicateCleanerForm: document.getElementById("duplicateCleanerForm"),
   duplicateDatasetPathInput: document.getElementById("duplicateDatasetPathInput"),
   duplicateTranscriptColumnInput: document.getElementById("duplicateTranscriptColumnInput"),
@@ -376,6 +399,9 @@ async function detectServerFeatures() {
     if (payload.default_dataset_path && els.duplicateDatasetPathInput) {
       els.duplicateDatasetPathInput.value = payload.default_dataset_path;
     }
+    if (payload.default_dataset_path && els.textNormalizerDatasetPathInput) {
+      els.textNormalizerDatasetPathInput.value = payload.default_dataset_path;
+    }
     if (payload.default_max_rows !== undefined && els.maxRowsInput) {
       els.maxRowsInput.value = String(payload.default_max_rows);
     }
@@ -446,6 +472,12 @@ async function detectServerFeatures() {
     els.runDuplicateCleanerButton.disabled = !state.datasetCleanerAvailable;
     els.runDuplicateCleanerButton.title = state.datasetCleanerAvailable
       ? "Remove rows that repeat the same transcript."
+      : "Requires python3 viewer_server.py.";
+  }
+  if (els.runTextNormalizerButton) {
+    els.runTextNormalizerButton.disabled = !state.datasetCleanerAvailable;
+    els.runTextNormalizerButton.title = state.datasetCleanerAvailable
+      ? "Normalize transcript text with the Darija ASR normalizer."
       : "Requires python3 viewer_server.py.";
   }
 }
@@ -1125,6 +1157,12 @@ function setDuplicateSaveModeState() {
   if (els.duplicateOverwriteOutputField) els.duplicateOverwriteOutputField.hidden = isOverwrite;
 }
 
+function setTextNormalizerSaveModeState() {
+  const isOverwrite = els.textNormalizerSaveModeInput?.value === "overwrite";
+  if (els.textNormalizerOutputPathField) els.textNormalizerOutputPathField.hidden = isOverwrite;
+  if (els.textNormalizerOverwriteOutputField) els.textNormalizerOverwriteOutputField.hidden = isOverwrite;
+}
+
 function setCleanerProgress(status = {}) {
   setProgressElements(
     {
@@ -1133,6 +1171,19 @@ function setCleanerProgress(status = {}) {
       percent: els.cleanerProgressPercent,
       label: els.cleanerProgressLabel,
       details: els.cleanerProgressDetails,
+    },
+    status,
+  );
+}
+
+function setTextNormalizerProgress(status = {}) {
+  setProgressElements(
+    {
+      card: els.textNormalizerProgressCard,
+      fill: els.textNormalizerProgressFill,
+      percent: els.textNormalizerProgressPercent,
+      label: els.textNormalizerProgressLabel,
+      details: els.textNormalizerProgressDetails,
     },
     status,
   );
@@ -1180,6 +1231,22 @@ function duplicateParamsFromForm() {
   };
 }
 
+function textNormalizerParamsFromForm() {
+  return {
+    dataset_path: els.textNormalizerDatasetPathInput?.value.trim() || "",
+    transcript_column: els.textNormalizerTranscriptColumnInput?.value.trim() || "",
+    output_column: els.textNormalizerOutputColumnInput?.value.trim() || "normalized_text",
+    language_column: els.textNormalizerLanguageColumnInput?.value.trim() || "",
+    language: els.textNormalizerLanguageInput?.value.trim() || "",
+    ta_marbuta_style: els.textNormalizerTaMarbutaInput?.value || "keep",
+    strip_latin_accents: Boolean(els.textNormalizerStripAccentsInput?.checked),
+    overwrite_text: Boolean(els.textNormalizerOverwriteTextInput?.checked),
+    output_mode: els.textNormalizerSaveModeInput?.value || "copy",
+    output_path: els.textNormalizerOutputPathInput?.value.trim() || "",
+    overwrite_output: Boolean(els.textNormalizerOverwriteOutputInput?.checked),
+  };
+}
+
 function formatSplitCounts(counts = {}) {
   const entries = Object.entries(counts);
   if (!entries.length) return "";
@@ -1210,6 +1277,38 @@ function renderCleanerResult(result = {}) {
     `Removed ${formatNumber(removed)} of ${formatNumber(total)} sample(s).`,
     `Kept ${formatNumber(kept)} sample(s).`,
     removedBySplit ? `Removed by split: ${removedBySplit}.` : "",
+    outputPath ? `Saved dataset: ${outputPath}` : "",
+    reportPath ? `Report: ${reportPath}` : "",
+    previewLines.length ? `Preview:\n${previewLines.join("\n")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function renderTextNormalizerResult(result = {}) {
+  if (!els.textNormalizerResult) return;
+  const changed = Number(result.changed_rows || 0);
+  const total = Number(result.total_rows || 0);
+  const outputPath = result.output_path || "";
+  const reportPath = result.report_path || "";
+  const changedBySplit = formatSplitCounts(result.changed_by_split);
+  const outputColumn = result.output_column || "normalized_text";
+  const preview = Array.isArray(result.normalized_samples_preview)
+    ? result.normalized_samples_preview.slice(0, 8)
+    : [];
+  const previewLines = preview.map((sample) => {
+    const row = sample.row !== undefined ? `row ${formatNumber(Number(sample.row) + 1)}` : "row ?";
+    const split = sample.split || "split";
+    const original = sample.original ? `\n  raw: ${sample.original}` : "";
+    const normalized = sample.normalized ? `\n  normalized: ${sample.normalized}` : "";
+    return `- ${split} ${row}:${original}${normalized}`;
+  });
+
+  els.textNormalizerResult.hidden = false;
+  els.textNormalizerResult.textContent = [
+    `Normalized ${formatNumber(total)} row(s). Changed ${formatNumber(changed)} transcript(s).`,
+    `Output column: ${outputColumn}.`,
+    changedBySplit ? `Changed by split: ${changedBySplit}.` : "",
     outputPath ? `Saved dataset: ${outputPath}` : "",
     reportPath ? `Report: ${reportPath}` : "",
     previewLines.length ? `Preview:\n${previewLines.join("\n")}` : "",
@@ -1331,6 +1430,7 @@ async function pollDatasetCleanerStatus() {
       if (outputPath) {
         if (els.datasetPathInput) els.datasetPathInput.value = outputPath;
         if (els.cleanerDatasetPathInput) els.cleanerDatasetPathInput.value = outputPath;
+        if (els.textNormalizerDatasetPathInput) els.textNormalizerDatasetPathInput.value = outputPath;
         if (els.duplicateDatasetPathInput) els.duplicateDatasetPathInput.value = outputPath;
         const maxRows = Number(els.maxRowsInput?.value || 0);
         await loadServerDataset({ path: outputPath, maxRows, silent: true });
@@ -1352,6 +1452,106 @@ async function pollDatasetCleanerStatus() {
     els.runCleanerButton.disabled = false;
     els.runCleanerButton.textContent = "Run Cleaner";
     showError("Could not read dataset cleaner status", error);
+  }
+}
+
+async function startTextNormalizer(event) {
+  event.preventDefault();
+  clearMessage();
+  if (!state.datasetCleanerAvailable) {
+    showError(
+      "Text normalizer unavailable",
+      "Transcript normalization needs the Python backend.",
+      "Start the app with `python3 viewer_server.py --host 0.0.0.0 --port 8000`.",
+    );
+    return;
+  }
+
+  const params = textNormalizerParamsFromForm();
+  if (!params.dataset_path) {
+    showError("Missing dataset path", "Enter the Hugging Face dataset folder path before normalizing.");
+    return;
+  }
+  if (!params.overwrite_text && !params.output_column) {
+    showError("Missing output column", "Enter a column name such as normalized_text.");
+    return;
+  }
+  if (params.output_mode === "copy" && !params.output_path) {
+    showError("Missing output path", "Enter a destination for the normalized dataset copy.");
+    return;
+  }
+  if (params.output_mode === "overwrite") {
+    const confirmed = window.confirm(`Override the original dataset at ${params.dataset_path}?`);
+    if (!confirmed) return;
+  }
+
+  window.clearInterval(state.textNormalizerPollTimer);
+  state.textNormalizerJobId = null;
+  if (els.textNormalizerResult) els.textNormalizerResult.hidden = true;
+  els.runTextNormalizerButton.disabled = true;
+  els.runTextNormalizerButton.textContent = "Normalizing...";
+  setTextNormalizerProgress({ percent: 1, stage: "Starting", message: "Preparing transcript normalization..." });
+
+  try {
+    const response = await fetch("./api/cleaner/normalize-text/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    state.textNormalizerJobId = payload.job_id;
+    pollTextNormalizerStatus();
+    state.textNormalizerPollTimer = window.setInterval(pollTextNormalizerStatus, 1500);
+  } catch (error) {
+    els.runTextNormalizerButton.disabled = false;
+    els.runTextNormalizerButton.textContent = "Normalize Text";
+    showError("Could not start text normalizer", error);
+  }
+}
+
+async function pollTextNormalizerStatus() {
+  if (!state.textNormalizerJobId) return;
+  try {
+    const response = await fetch(`./api/cleaner/status?id=${encodeURIComponent(state.textNormalizerJobId)}`, {
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    setTextNormalizerProgress(payload.job);
+
+    if (payload.job.status === "completed") {
+      window.clearInterval(state.textNormalizerPollTimer);
+      els.runTextNormalizerButton.disabled = false;
+      els.runTextNormalizerButton.textContent = "Normalize Text";
+      const result = payload.job.result || {};
+      const outputPath = result.output_path || "";
+      renderTextNormalizerResult(result);
+      if (outputPath) {
+        if (els.datasetPathInput) els.datasetPathInput.value = outputPath;
+        if (els.cleanerDatasetPathInput) els.cleanerDatasetPathInput.value = outputPath;
+        if (els.textNormalizerDatasetPathInput) els.textNormalizerDatasetPathInput.value = outputPath;
+        if (els.duplicateDatasetPathInput) els.duplicateDatasetPathInput.value = outputPath;
+        const maxRows = Number(els.maxRowsInput?.value || 0);
+        await loadServerDataset({ path: outputPath, maxRows, silent: true });
+      }
+      showMessage(
+        "success",
+        "Transcript normalization completed",
+        `Normalized ${formatNumber(result.total_rows || 0)} row(s). Changed ${formatNumber(result.changed_rows || 0)} transcript(s).`,
+        outputPath,
+      );
+    } else if (payload.job.status === "failed") {
+      window.clearInterval(state.textNormalizerPollTimer);
+      els.runTextNormalizerButton.disabled = false;
+      els.runTextNormalizerButton.textContent = "Normalize Text";
+      showError("Text normalizer failed", payload.job.error || "The text normalizer job failed.", payload.job.log_tail || "");
+    }
+  } catch (error) {
+    window.clearInterval(state.textNormalizerPollTimer);
+    els.runTextNormalizerButton.disabled = false;
+    els.runTextNormalizerButton.textContent = "Normalize Text";
+    showError("Could not read text normalizer status", error);
   }
 }
 
@@ -1426,6 +1626,7 @@ async function pollDuplicateCleanerStatus() {
       if (outputPath) {
         if (els.datasetPathInput) els.datasetPathInput.value = outputPath;
         if (els.cleanerDatasetPathInput) els.cleanerDatasetPathInput.value = outputPath;
+        if (els.textNormalizerDatasetPathInput) els.textNormalizerDatasetPathInput.value = outputPath;
         if (els.duplicateDatasetPathInput) els.duplicateDatasetPathInput.value = outputPath;
         const maxRows = Number(els.maxRowsInput?.value || 0);
         await loadServerDataset({ path: outputPath, maxRows, silent: true });
@@ -2814,6 +3015,8 @@ function bindEvents() {
   on(els.hfPushForm, "submit", startHfDatasetPush);
   on(els.cleanerForm, "submit", startDatasetCleaner);
   on(els.cleanerSaveModeInput, "change", setCleanerSaveModeState);
+  on(els.textNormalizerForm, "submit", startTextNormalizer);
+  on(els.textNormalizerSaveModeInput, "change", setTextNormalizerSaveModeState);
   on(els.duplicateCleanerForm, "submit", startDuplicateCleaner);
   on(els.duplicateSaveModeInput, "change", setDuplicateSaveModeState);
   on(els.loadHfColumnsButton, "click", () => loadHfColumns());
@@ -2929,6 +3132,7 @@ function bindEvents() {
 
 bindEvents();
 setCleanerSaveModeState();
+setTextNormalizerSaveModeState();
 setDuplicateSaveModeState();
 render();
 switchPage("viewer");

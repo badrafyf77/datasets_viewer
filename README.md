@@ -74,7 +74,9 @@ Phase 1, **Bad Sample Removal**, removes rows that fail either check:
 - Whisper transcription CER above the threshold, default `0.6`
 - Transcript length outside the chars/sec range, default `5` to `22`
 
-Phase 2, **Duplicate Text Removal**, removes repeated transcript rows and keeps the first occurrence. By default it normalizes spaces, casing, and simple punctuation before matching duplicate text.
+Phase 2, **Transcript Normalization**, applies `tools/best_asr_text_normalizer.py` to a transcript column. By default it writes a `normalized_text` column, preserving Darija in Arabic script and French/English code-switch words in Latin script.
+
+Phase 3, **Duplicate Text Removal**, removes repeated transcript rows and keeps the first occurrence. By default it normalizes spaces, casing, and simple punctuation before matching duplicate text.
 
 Choose **Save cleaned copy** and enter a new output folder, or choose **Override original dataset**. When a job finishes, the page shows the removed sample count, the saved dataset path, and a JSON report path with removal details.
 

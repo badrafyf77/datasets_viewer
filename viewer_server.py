@@ -9,6 +9,7 @@ Run this on Lightning instead of `python3 -m http.server`:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import mimetypes
 import os
@@ -159,6 +160,9 @@ class DatasetViewerHandler(SimpleHTTPRequestHandler):
             return
         if parsed.path == "/api/cleaner/duplicates/start":
             self.start_duplicate_cleaner()
+            return
+        if parsed.path == "/api/cleaner/normalize-text/start":
+            self.start_text_normalizer()
             return
         self.send_error(HTTPStatus.NOT_FOUND, "Unknown endpoint")
 
@@ -519,6 +523,39 @@ class DatasetViewerHandler(SimpleHTTPRequestHandler):
 
         thread = threading.Thread(
             target=run_duplicate_cleaner_job,
+            args=(job_id, params, self.site_root),
+            daemon=True,
+        )
+        thread.start()
+        self.send_json({"ok": True, "job_id": job_id, "job": public_job(job)})
+
+    def start_text_normalizer(self) -> None:
+        try:
+            params = self.read_json_body()
+        except ValueError as exc:
+            self.send_error_json(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+
+        job_id = uuid.uuid4().hex[:12]
+        job = {
+            "id": job_id,
+            "ok": True,
+            "status": "queued",
+            "stage": "Queued",
+            "percent": 0,
+            "message": "Waiting to normalize transcript text.",
+            "error": "",
+            "log_tail": "",
+            "started_at": time.time(),
+            "updated_at": time.time(),
+            "params": params,
+            "result": {},
+        }
+        with CLEANER_LOCK:
+            CLEANER_JOBS[job_id] = job
+
+        thread = threading.Thread(
+            target=run_text_normalizer_job,
             args=(job_id, params, self.site_root),
             daemon=True,
         )
@@ -1432,6 +1469,24 @@ def normalized_asr_text(value: str) -> str:
     return re.sub(r"\s+", " ", str(value or "").strip())
 
 
+def load_best_asr_text_normalizer(site_root: Path):
+    normalizer_path = site_root / "tools" / "best_asr_text_normalizer.py"
+    if not normalizer_path.exists():
+        raise RuntimeError(f"Text normalizer file was not found: {normalizer_path}")
+
+    module_name = f"best_asr_text_normalizer_{uuid.uuid4().hex}"
+    spec = importlib.util.spec_from_file_location(module_name, normalizer_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Could not load text normalizer from {normalizer_path}")
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    normalize_fn = getattr(module, "normalize_asr_text", None)
+    if not callable(normalize_fn):
+        raise RuntimeError("best_asr_text_normalizer.py does not expose normalize_asr_text().")
+    return normalize_fn, normalizer_path
+
+
 def resolve_existing_audio_path(path_value: str, dataset_path: Path, site_root: Path) -> Path:
     raw_text = str(path_value or "").strip().strip("\"'")
     if not raw_text:
@@ -1640,6 +1695,11 @@ def duplicate_report_path(output_path: Path) -> Path:
     return output_path.parent / f"{output_path.name}_duplicate_report_{stamp}.json"
 
 
+def text_normalization_report_path(output_path: Path) -> Path:
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    return output_path.parent / f"{output_path.name}_text_normalization_report_{stamp}.json"
+
+
 def normalize_duplicate_text(value: str, normalize: bool) -> str:
     text = normalized_asr_text(value)
     if not normalize:
@@ -1678,6 +1738,31 @@ def duplicate_output_path_for(
     return output_path
 
 
+def text_normalizer_output_path_for(
+    dataset_path: Path,
+    output_mode: str,
+    output_value: str,
+    overwrite_output: bool,
+    site_root: Path,
+    pipeline_dir: Path,
+) -> Path:
+    if output_mode not in {"copy", "overwrite"}:
+        raise RuntimeError("Save mode must be `copy` or `overwrite`.")
+    if output_mode == "overwrite":
+        return dataset_path
+
+    output_path = (
+        resolve_hf_dataset_path(output_value, site_root, pipeline_dir, must_exist=False)
+        if output_value
+        else unique_path(dataset_path.with_name(f"{dataset_path.name}_normalized"))
+    )
+    if output_path == dataset_path:
+        raise RuntimeError("Use Override original dataset when the output path is the input path.")
+    if output_path.exists() and not overwrite_output:
+        raise RuntimeError(f"Output path already exists: {output_path}. Enable overwrite or choose a new folder.")
+    return output_path
+
+
 def save_cleaner_dataset(cleaned, output_path: Path, output_mode: str, site_root: Path, pipeline_dir: Path) -> None:
     if output_mode == "overwrite":
         temp_output = output_path.with_name(f".{output_path.name}.cleaner-{uuid.uuid4().hex[:8]}")
@@ -1698,6 +1783,249 @@ def save_cleaner_dataset(cleaned, output_path: Path, output_mode: str, site_root
         guarded_remove_output(output_path, site_root, pipeline_dir)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     cleaned.save_to_disk(str(output_path))
+
+
+def run_text_normalizer_job(job_id: str, params: dict, site_root: Path) -> None:
+    pipeline_dir = site_root / "synthetic_cs_dataset"
+    output_path: Path | None = None
+    try:
+        dataset_value = str(params.get("dataset_path") or "").strip()
+        if not dataset_value:
+            raise RuntimeError("Missing dataset path.")
+
+        dataset_path = resolve_hf_dataset_path(dataset_value, site_root, pipeline_dir, must_exist=True)
+        if not dataset_path.exists():
+            raise RuntimeError(f"Dataset path was not found: {dataset_path}")
+
+        output_mode = str(params.get("output_mode") or "copy").strip()
+        output_value = str(params.get("output_path") or "").strip()
+        overwrite_output = cleaner_bool(params, "overwrite_output", False)
+        output_path = text_normalizer_output_path_for(
+            dataset_path,
+            output_mode,
+            output_value,
+            overwrite_output,
+            site_root,
+            pipeline_dir,
+        )
+
+        output_column = str(params.get("output_column") or "normalized_text").strip() or "normalized_text"
+        overwrite_text = cleaner_bool(params, "overwrite_text", False)
+        language_column_request = str(params.get("language_column") or "").strip()
+        fixed_language = str(params.get("language") or "").strip()
+        strip_latin_accents = cleaner_bool(params, "strip_latin_accents", False)
+        ta_marbuta_style = str(params.get("ta_marbuta_style") or "keep").strip() or "keep"
+        if ta_marbuta_style not in {"keep", "h"}:
+            raise RuntimeError("Ta marbuta style must be `keep` or `h`.")
+
+        update_cleaner_job(
+            job_id,
+            status="running",
+            stage="Loading",
+            percent=5,
+            message=f"Loading dataset from {dataset_path}",
+            result={"input_path": str(dataset_path), "output_path": str(output_path)},
+        )
+
+        try:
+            from datasets import Dataset, DatasetDict, load_from_disk
+        except ImportError as exc:
+            raise RuntimeError("Install the `datasets` package before normalizing datasets.") from exc
+
+        normalize_asr_text, normalizer_path = load_best_asr_text_normalizer(site_root)
+        loaded = load_from_disk(str(dataset_path))
+        if isinstance(loaded, DatasetDict):
+            split_map = dict(loaded.items())
+            single_dataset = False
+        elif isinstance(loaded, Dataset):
+            split_map = {"train": loaded}
+            single_dataset = True
+        else:
+            raise RuntimeError(f"Unsupported Hugging Face dataset type at {dataset_path}")
+
+        transcript_column = infer_common_cleaner_column(
+            split_map,
+            str(params.get("transcript_column") or "").strip(),
+            TRANSCRIPT_COLUMN_CANDIDATES,
+            "Transcript",
+        )
+        if overwrite_text:
+            output_column = transcript_column
+
+        language_column = ""
+        first_dataset = next(iter(split_map.values()))
+        first_columns = list(getattr(first_dataset, "column_names", []) or [])
+        if language_column_request:
+            language_column = match_column(first_columns, language_column_request)
+            if not language_column:
+                raise RuntimeError(f"Language column was not found: {language_column_request}")
+            missing = [
+                split
+                for split, dataset in split_map.items()
+                if language_column not in list(getattr(dataset, "column_names", []) or [])
+            ]
+            if missing:
+                raise RuntimeError(f"Language column `{language_column}` is missing from split(s): {', '.join(missing)}")
+        else:
+            language_column = match_column(first_columns, "lang")
+            if language_column:
+                missing = [
+                    split
+                    for split, dataset in split_map.items()
+                    if language_column not in list(getattr(dataset, "column_names", []) or [])
+                ]
+                if missing:
+                    language_column = ""
+
+        rows_by_split = {split: len(dataset) for split, dataset in split_map.items()}
+        total_rows = sum(rows_by_split.values())
+        if total_rows <= 0:
+            raise RuntimeError("The dataset has no rows to normalize.")
+
+        normalized_splits = {}
+        processed = 0
+        changed_rows = 0
+        changed_by_split: dict[str, int] = {}
+        preview: list[dict] = []
+        last_update = 0.0
+
+        update_cleaner_job(
+            job_id,
+            stage="Normalizing",
+            percent=10,
+            message=f"Normalizing `{transcript_column}` into `{output_column}`.",
+            result={
+                "input_path": str(dataset_path),
+                "output_path": str(output_path),
+                "transcript_column": transcript_column,
+                "output_column": output_column,
+                "rows_by_split": rows_by_split,
+            },
+        )
+
+        for split, dataset in split_map.items():
+            split_changed = 0
+
+            def normalize_row(row: dict, index: int) -> dict:
+                nonlocal processed, changed_rows, split_changed, last_update
+                raw_text = str(row.get(transcript_column) or "")
+                row_language = fixed_language
+                if not row_language and language_column:
+                    row_language = str(row.get(language_column) or "").strip()
+
+                normalized = normalize_asr_text(
+                    raw_text,
+                    row_language or None,
+                    strip_latin_accents=strip_latin_accents,
+                    ta_marbuta_style=ta_marbuta_style,
+                )
+                row[output_column] = normalized
+
+                if normalized != normalized_asr_text(raw_text):
+                    changed_rows += 1
+                    split_changed += 1
+                    if len(preview) < 25:
+                        preview.append(
+                            {
+                                "split": split,
+                                "row": index,
+                                "id": bad_sample_identity(row),
+                                "original": raw_text,
+                                "normalized": normalized,
+                            }
+                        )
+
+                processed += 1
+                now = time.time()
+                if now - last_update >= 1.2 or processed == total_rows:
+                    percent = 10 + min(78, (processed / total_rows) * 78)
+                    update_cleaner_job(
+                        job_id,
+                        stage="Normalizing",
+                        percent=round(percent, 1),
+                        message=(
+                            f"Normalized {processed}/{total_rows} row(s). "
+                            f"Changed {changed_rows} transcript(s)."
+                        ),
+                        result={
+                            "input_path": str(dataset_path),
+                            "output_path": str(output_path),
+                            "processed_rows": processed,
+                            "changed_rows": changed_rows,
+                            "rows_by_split": rows_by_split,
+                        },
+                    )
+                    last_update = now
+                return row
+
+            normalized_splits[split] = dataset.map(normalize_row, with_indices=True)
+            changed_by_split[split] = split_changed
+
+        normalized_dataset = normalized_splits["train"] if single_dataset else DatasetDict(normalized_splits)
+
+        update_cleaner_job(
+            job_id,
+            stage="Saving",
+            percent=92,
+            message=f"Saving normalized dataset to {output_path}",
+            result={
+                "input_path": str(dataset_path),
+                "output_path": str(output_path),
+                "total_rows": total_rows,
+                "changed_rows": changed_rows,
+                "changed_by_split": changed_by_split,
+                "transcript_column": transcript_column,
+                "output_column": output_column,
+            },
+        )
+
+        save_cleaner_dataset(normalized_dataset, output_path, output_mode, site_root, pipeline_dir)
+
+        report_path = text_normalization_report_path(output_path)
+        result = {
+            "input_path": str(dataset_path),
+            "output_path": str(output_path),
+            "output_mode": output_mode,
+            "report_path": str(report_path),
+            "total_rows": total_rows,
+            "changed_rows": changed_rows,
+            "rows_by_split": rows_by_split,
+            "changed_by_split": changed_by_split,
+            "transcript_column": transcript_column,
+            "output_column": output_column,
+            "language_column": language_column,
+            "fixed_language": fixed_language,
+            "strip_latin_accents": strip_latin_accents,
+            "ta_marbuta_style": ta_marbuta_style,
+            "normalizer_path": str(normalizer_path),
+            "normalized_samples_preview": preview,
+        }
+        report_payload = dict(result)
+        report_payload["normalized_samples"] = preview
+        report_path.write_text(json.dumps(report_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        DatasetViewerHandler.dataset_cache.clear()
+        DatasetViewerHandler.dataset_path = output_path
+
+        update_cleaner_job(
+            job_id,
+            status="completed",
+            stage="Completed",
+            percent=100,
+            message=f"Normalized {total_rows} row(s). Dataset: {output_path}",
+            result=result,
+        )
+    except Exception as exc:
+        update_cleaner_job(
+            job_id,
+            status="failed",
+            stage="Failed",
+            percent=100,
+            message="Transcript normalization failed.",
+            error=str(exc),
+            log_tail=str(exc),
+            result={"output_path": str(output_path) if output_path else ""},
+        )
 
 
 def run_dataset_cleaner_job(job_id: str, params: dict, site_root: Path) -> None:

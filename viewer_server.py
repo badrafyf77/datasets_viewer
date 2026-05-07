@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import io
 import json
 import mimetypes
 import os
@@ -1786,6 +1787,39 @@ def gain_transform_audio(audio, rng: random.Random, helpers) -> tuple[object, fl
     return helpers.peak_limit(gained), gain_db
 
 
+def audio_value_to_array(value, dataset_path: Path, site_root: Path):
+    import numpy as np
+    import soundfile as sf
+
+    if isinstance(value, dict):
+        array = value.get("array")
+        sampling_rate = value.get("sampling_rate")
+        if array is not None and sampling_rate:
+            return np.asarray(array, dtype=np.float32), int(sampling_rate)
+
+        audio_bytes = value.get("bytes")
+        if audio_bytes:
+            audio, sample_rate = sf.read(io.BytesIO(audio_bytes), always_2d=False)
+            return np.asarray(audio, dtype=np.float32), int(sample_rate)
+
+        path_value = value.get("path") or value.get("file_name") or value.get("audio")
+        if path_value:
+            audio_path = resolve_existing_audio_path(str(path_value), dataset_path, site_root)
+            if audio_path.exists() and audio_path.is_file():
+                audio, sample_rate = sf.read(str(audio_path), always_2d=False)
+                return np.asarray(audio, dtype=np.float32), int(sample_rate)
+            raise FileNotFoundError(f"Audio path was not found: {audio_path}")
+
+    if value:
+        audio_path = resolve_existing_audio_path(str(value), dataset_path, site_root)
+        if audio_path.exists() and audio_path.is_file():
+            audio, sample_rate = sf.read(str(audio_path), always_2d=False)
+            return np.asarray(audio, dtype=np.float32), int(sample_rate)
+        raise FileNotFoundError(f"Audio path was not found: {audio_path}")
+
+    raise FileNotFoundError("Audio value is empty.")
+
+
 def duration_sample_identity(row: dict) -> str:
     return bad_sample_identity(row)
 
@@ -3239,39 +3273,31 @@ def run_data_augmentation_job(job_id: str, params: dict, site_root: Path) -> Non
                 source_key = source_value or "<blank>"
                 source_counts[source_key] = source_counts.get(source_key, 0) + 1
                 duration = parse_duration_seconds(row.get(duration_column), duration_column) if duration_column else 0.0
-                audio_path = None
-                temp_audio = None
-                try:
-                    audio_path, temp_audio = materialize_cleaner_audio(row.get(audio_column), dataset_path, site_root)
-                    if duration <= 0 and audio_path is not None and audio_path.exists() and audio_path.is_file():
-                        duration = cleaner_audio_duration_seconds(audio_path)
-                except Exception:
-                    duration = 0.0
-                finally:
-                    if temp_audio:
-                        try:
-                            temp_audio.unlink(missing_ok=True)
-                        except Exception:
-                            pass
-
-                if duration > 0:
-                    total_seconds += duration
                 if not row_matches_source_filters(row, source_column, include_terms, exclude_terms):
                     skipped["source_filter"] = skipped.get("source_filter", 0) + 1
                     continue
-                if audio_path is None or not audio_path.exists() or not audio_path.is_file():
-                    skipped["missing_audio"] = skipped.get("missing_audio", 0) + 1
+                if not row.get(audio_column):
+                    skipped["missing_audio_value"] = skipped.get("missing_audio_value", 0) + 1
                     continue
+                if duration <= 0:
+                    try:
+                        probe_audio, probe_sample_rate = audio_value_to_array(row.get(audio_column), dataset_path, site_root)
+                        probe_audio = helpers.to_mono(np.asarray(probe_audio, dtype=np.float32))
+                        duration = float(probe_audio.size / probe_sample_rate) if probe_sample_rate else 0.0
+                    except Exception as exc:
+                        skipped_key = f"audio_read_failed:{str(exc)[:80]}"
+                        skipped[skipped_key] = skipped.get(skipped_key, 0) + 1
+                        continue
                 if duration <= 0:
                     skipped["invalid_duration"] = skipped.get("invalid_duration", 0) + 1
                     continue
+                total_seconds += duration
                 eligible_seconds += duration
                 candidates.append(
                     {
                         "split": split,
                         "row": index,
                         "data": row,
-                        "audio_path": audio_path,
                         "duration": duration,
                         "source": source_value,
                         "used_types": set(),
@@ -3349,7 +3375,7 @@ def run_data_augmentation_job(job_id: str, params: dict, site_root: Path) -> Non
             transform_type = rng.choices(available_transforms, weights=weights, k=1)[0]
 
             try:
-                audio, sample_rate = sf.read(candidate["audio_path"], always_2d=False)
+                audio, sample_rate = audio_value_to_array(candidate["data"].get(audio_column), dataset_path, site_root)
                 audio = helpers.to_mono(np.asarray(audio, dtype=np.float32))
             except Exception as exc:
                 skipped["audio_read_failed"] = skipped.get("audio_read_failed", 0) + 1

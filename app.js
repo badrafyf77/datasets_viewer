@@ -57,6 +57,8 @@ const state = {
   textNormalizerPollTimer: null,
   durationFilterJobId: null,
   durationFilterPollTimer: null,
+  augmentationJobId: null,
+  augmentationPollTimer: null,
   duplicateCleanerJobId: null,
   duplicateCleanerPollTimer: null,
   mergedHfDatasetPath: "",
@@ -239,6 +241,34 @@ const els = {
   durationFilterProgressFill: document.getElementById("durationFilterProgressFill"),
   durationFilterProgressDetails: document.getElementById("durationFilterProgressDetails"),
   durationFilterResult: document.getElementById("durationFilterResult"),
+  augmentationForm: document.getElementById("augmentationForm"),
+  augmentationDatasetPathInput: document.getElementById("augmentationDatasetPathInput"),
+  augmentationAudioColumnInput: document.getElementById("augmentationAudioColumnInput"),
+  augmentationDurationColumnInput: document.getElementById("augmentationDurationColumnInput"),
+  augmentationSplitInput: document.getElementById("augmentationSplitInput"),
+  augmentationTargetPercentInput: document.getElementById("augmentationTargetPercentInput"),
+  augmentationSourceColumnInput: document.getElementById("augmentationSourceColumnInput"),
+  augmentationIncludeSourcesInput: document.getElementById("augmentationIncludeSourcesInput"),
+  augmentationExcludeSourcesInput: document.getElementById("augmentationExcludeSourcesInput"),
+  augmentationSpeedCoverageInput: document.getElementById("augmentationSpeedCoverageInput"),
+  augmentationNoiseCoverageInput: document.getElementById("augmentationNoiseCoverageInput"),
+  augmentationReverbCoverageInput: document.getElementById("augmentationReverbCoverageInput"),
+  augmentationTelephonyCoverageInput: document.getElementById("augmentationTelephonyCoverageInput"),
+  augmentationGainCoverageInput: document.getElementById("augmentationGainCoverageInput"),
+  augmentationMaxCopiesInput: document.getElementById("augmentationMaxCopiesInput"),
+  augmentationSeedInput: document.getElementById("augmentationSeedInput"),
+  augmentationSaveModeInput: document.getElementById("augmentationSaveModeInput"),
+  augmentationOutputPathField: document.getElementById("augmentationOutputPathField"),
+  augmentationOutputPathInput: document.getElementById("augmentationOutputPathInput"),
+  augmentationOverwriteOutputField: document.getElementById("augmentationOverwriteOutputField"),
+  augmentationOverwriteOutputInput: document.getElementById("augmentationOverwriteOutputInput"),
+  runAugmentationButton: document.getElementById("runAugmentationButton"),
+  augmentationProgressCard: document.getElementById("augmentationProgressCard"),
+  augmentationProgressLabel: document.getElementById("augmentationProgressLabel"),
+  augmentationProgressPercent: document.getElementById("augmentationProgressPercent"),
+  augmentationProgressFill: document.getElementById("augmentationProgressFill"),
+  augmentationProgressDetails: document.getElementById("augmentationProgressDetails"),
+  augmentationResult: document.getElementById("augmentationResult"),
   duplicateCleanerForm: document.getElementById("duplicateCleanerForm"),
   duplicateDatasetPathInput: document.getElementById("duplicateDatasetPathInput"),
   duplicateTranscriptColumnInput: document.getElementById("duplicateTranscriptColumnInput"),
@@ -429,6 +459,9 @@ async function detectServerFeatures() {
     if (payload.default_dataset_path && els.durationFilterDatasetPathInput) {
       els.durationFilterDatasetPathInput.value = payload.default_dataset_path;
     }
+    if (payload.default_dataset_path && els.augmentationDatasetPathInput) {
+      els.augmentationDatasetPathInput.value = payload.default_dataset_path;
+    }
     if (payload.default_max_rows !== undefined && els.maxRowsInput) {
       els.maxRowsInput.value = String(payload.default_max_rows);
     }
@@ -513,6 +546,12 @@ async function detectServerFeatures() {
     els.runDurationFilterButton.disabled = !state.datasetCleanerAvailable;
     els.runDurationFilterButton.title = state.datasetCleanerAvailable
       ? "Remove samples outside the selected duration range."
+      : "Requires python3 viewer_server.py.";
+  }
+  if (els.runAugmentationButton) {
+    els.runAugmentationButton.disabled = !state.datasetCleanerAvailable;
+    els.runAugmentationButton.title = state.datasetCleanerAvailable
+      ? "Create augmented audio copies and append them to a dataset copy."
       : "Requires python3 viewer_server.py.";
   }
 }
@@ -1204,6 +1243,12 @@ function setDurationFilterSaveModeState() {
   if (els.durationFilterOverwriteOutputField) els.durationFilterOverwriteOutputField.hidden = isOverwrite;
 }
 
+function setAugmentationSaveModeState() {
+  const isOverwrite = els.augmentationSaveModeInput?.value === "overwrite";
+  if (els.augmentationOutputPathField) els.augmentationOutputPathField.hidden = isOverwrite;
+  if (els.augmentationOverwriteOutputField) els.augmentationOverwriteOutputField.hidden = isOverwrite;
+}
+
 function setCleanerProgress(status = {}) {
   setProgressElements(
     {
@@ -1238,6 +1283,19 @@ function setDurationFilterProgress(status = {}) {
       percent: els.durationFilterProgressPercent,
       label: els.durationFilterProgressLabel,
       details: els.durationFilterProgressDetails,
+    },
+    status,
+  );
+}
+
+function setAugmentationProgress(status = {}) {
+  setProgressElements(
+    {
+      card: els.augmentationProgressCard,
+      fill: els.augmentationProgressFill,
+      percent: els.augmentationProgressPercent,
+      label: els.augmentationProgressLabel,
+      details: els.augmentationProgressDetails,
     },
     status,
   );
@@ -1311,6 +1369,29 @@ function durationFilterParamsFromForm() {
     output_mode: els.durationFilterSaveModeInput?.value || "copy",
     output_path: els.durationFilterOutputPathInput?.value.trim() || "",
     overwrite_output: Boolean(els.durationFilterOverwriteOutputInput?.checked),
+  };
+}
+
+function augmentationParamsFromForm() {
+  return {
+    dataset_path: els.augmentationDatasetPathInput?.value.trim() || "",
+    audio_column: els.augmentationAudioColumnInput?.value.trim() || "",
+    duration_column: els.augmentationDurationColumnInput?.value.trim() || "",
+    split: els.augmentationSplitInput?.value.trim() || "train",
+    target_extra_percent: Number(els.augmentationTargetPercentInput?.value || 50),
+    source_column: els.augmentationSourceColumnInput?.value.trim() || "source",
+    include_source_terms: els.augmentationIncludeSourcesInput?.value.trim() || "",
+    exclude_source_terms: els.augmentationExcludeSourcesInput?.value.trim() || "",
+    speed_coverage_percent: Number(els.augmentationSpeedCoverageInput?.value || 0),
+    noise_coverage_percent: Number(els.augmentationNoiseCoverageInput?.value || 0),
+    reverb_coverage_percent: Number(els.augmentationReverbCoverageInput?.value || 0),
+    telephony_coverage_percent: Number(els.augmentationTelephonyCoverageInput?.value || 0),
+    gain_coverage_percent: Number(els.augmentationGainCoverageInput?.value || 0),
+    max_copies_per_original: Number(els.augmentationMaxCopiesInput?.value || 2),
+    random_seed: Number(els.augmentationSeedInput?.value || 77),
+    output_mode: els.augmentationSaveModeInput?.value || "copy",
+    output_path: els.augmentationOutputPathInput?.value.trim() || "",
+    overwrite_output: Boolean(els.augmentationOverwriteOutputInput?.checked),
   };
 }
 
@@ -1418,6 +1499,47 @@ function renderDurationFilterResult(result = {}) {
     sourceColumn ? `Duration source: ${sourceColumn}.` : "",
     removedBySplit ? `Removed by split: ${removedBySplit}.` : "",
     outputPath ? `Saved dataset: ${outputPath}` : "",
+    reportPath ? `Report: ${reportPath}` : "",
+    previewLines.length ? `Preview:\n${previewLines.join("\n")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function renderAugmentationResult(result = {}) {
+  if (!els.augmentationResult) return;
+  const targetHours = Number(result.target_added_hours || 0);
+  const addedHours = Number(result.added_hours || 0);
+  const baseHours = Number(result.base_hours || 0);
+  const eligibleHours = Number(result.eligible_hours || 0);
+  const rows = Number(result.augmented_rows || 0);
+  const outputPath = result.output_path || "";
+  const reportPath = result.report_path || "";
+  const audioDir = result.audio_output_dir || "";
+  const counts = result.transform_counts || {};
+  const transformLines = Object.entries(counts)
+    .filter(([, count]) => Number(count) > 0)
+    .map(([name, count]) => `${name}: ${formatNumber(count)}`)
+    .join(", ");
+  const preview = Array.isArray(result.augmented_samples_preview)
+    ? result.augmented_samples_preview.slice(0, 8)
+    : [];
+  const previewLines = preview.map((sample) => {
+    const split = sample.split || "split";
+    const row = sample.row !== undefined ? `row ${formatNumber(Number(sample.row) + 1)}` : "row ?";
+    const type = sample.augmentation_type || "augmentation";
+    const variant = sample.variant ? ` ${sample.variant}` : "";
+    const seconds = sample.duration_seconds !== undefined ? `, ${sample.duration_seconds}s` : "";
+    return `- ${split} ${row}: ${type}${variant}${seconds}`;
+  });
+
+  els.augmentationResult.hidden = false;
+  els.augmentationResult.textContent = [
+    `Added ${addedHours.toFixed(2)}h of ${targetHours.toFixed(2)}h target from ${baseHours.toFixed(2)}h base.`,
+    `Eligible real-source audio: ${eligibleHours.toFixed(2)}h. Augmented rows: ${formatNumber(rows)}.`,
+    transformLines ? `Transforms: ${transformLines}.` : "",
+    outputPath ? `Saved dataset: ${outputPath}` : "",
+    audioDir ? `Audio folder: ${audioDir}` : "",
     reportPath ? `Report: ${reportPath}` : "",
     previewLines.length ? `Preview:\n${previewLines.join("\n")}` : "",
   ]
@@ -1540,6 +1662,7 @@ async function pollDatasetCleanerStatus() {
         if (els.cleanerDatasetPathInput) els.cleanerDatasetPathInput.value = outputPath;
         if (els.textNormalizerDatasetPathInput) els.textNormalizerDatasetPathInput.value = outputPath;
         if (els.durationFilterDatasetPathInput) els.durationFilterDatasetPathInput.value = outputPath;
+        if (els.augmentationDatasetPathInput) els.augmentationDatasetPathInput.value = outputPath;
         if (els.duplicateDatasetPathInput) els.duplicateDatasetPathInput.value = outputPath;
         const maxRows = Number(els.maxRowsInput?.value || 0);
         await loadServerDataset({ path: outputPath, maxRows, silent: true });
@@ -1641,6 +1764,7 @@ async function pollTextNormalizerStatus() {
         if (els.cleanerDatasetPathInput) els.cleanerDatasetPathInput.value = outputPath;
         if (els.textNormalizerDatasetPathInput) els.textNormalizerDatasetPathInput.value = outputPath;
         if (els.durationFilterDatasetPathInput) els.durationFilterDatasetPathInput.value = outputPath;
+        if (els.augmentationDatasetPathInput) els.augmentationDatasetPathInput.value = outputPath;
         if (els.duplicateDatasetPathInput) els.duplicateDatasetPathInput.value = outputPath;
         const maxRows = Number(els.maxRowsInput?.value || 0);
         await loadServerDataset({ path: outputPath, maxRows, silent: true });
@@ -1746,6 +1870,7 @@ async function pollDurationFilterStatus() {
         if (els.cleanerDatasetPathInput) els.cleanerDatasetPathInput.value = outputPath;
         if (els.textNormalizerDatasetPathInput) els.textNormalizerDatasetPathInput.value = outputPath;
         if (els.durationFilterDatasetPathInput) els.durationFilterDatasetPathInput.value = outputPath;
+        if (els.augmentationDatasetPathInput) els.augmentationDatasetPathInput.value = outputPath;
         if (els.duplicateDatasetPathInput) els.duplicateDatasetPathInput.value = outputPath;
         const maxRows = Number(els.maxRowsInput?.value || 0);
         await loadServerDataset({ path: outputPath, maxRows, silent: true });
@@ -1769,6 +1894,128 @@ async function pollDurationFilterStatus() {
     els.runDurationFilterButton.disabled = false;
     els.runDurationFilterButton.textContent = "Filter Duration";
     showError("Could not read duration filter status", error);
+  }
+}
+
+async function startDataAugmentation(event) {
+  event.preventDefault();
+  clearMessage();
+  if (!state.datasetCleanerAvailable) {
+    showError(
+      "Data augmentation unavailable",
+      "Data augmentation needs the Python backend.",
+      "Start the app with `python3 viewer_server.py --host 0.0.0.0 --port 8000`.",
+    );
+    return;
+  }
+
+  const params = augmentationParamsFromForm();
+  const coverages = [
+    params.speed_coverage_percent,
+    params.noise_coverage_percent,
+    params.reverb_coverage_percent,
+    params.telephony_coverage_percent,
+    params.gain_coverage_percent,
+  ];
+  if (!params.dataset_path) {
+    showError("Missing dataset path", "Enter the Hugging Face dataset folder path before augmentation.");
+    return;
+  }
+  if (!Number.isFinite(params.target_extra_percent) || params.target_extra_percent <= 0) {
+    showError("Invalid target extra %", "Enter a target extra percentage greater than 0.");
+    return;
+  }
+  if (coverages.some((value) => !Number.isFinite(value) || value < 0) || !coverages.some((value) => value > 0)) {
+    showError("Invalid augmentation coverage", "Enable at least one non-negative augmentation coverage value.");
+    return;
+  }
+  if (
+    !Number.isFinite(params.max_copies_per_original) ||
+    !Number.isInteger(params.max_copies_per_original) ||
+    params.max_copies_per_original < 1 ||
+    params.max_copies_per_original > 5
+  ) {
+    showError("Invalid max copies", "Max copies per original must be a whole number from 1 to 5.");
+    return;
+  }
+  if (params.output_mode === "copy" && !params.output_path) {
+    showError("Missing output path", "Enter a destination for the augmented dataset copy.");
+    return;
+  }
+  if (params.output_mode === "overwrite") {
+    const confirmed = window.confirm(`Override the original dataset at ${params.dataset_path}?`);
+    if (!confirmed) return;
+  }
+
+  window.clearInterval(state.augmentationPollTimer);
+  state.augmentationJobId = null;
+  if (els.augmentationResult) els.augmentationResult.hidden = true;
+  els.runAugmentationButton.disabled = true;
+  els.runAugmentationButton.textContent = "Augmenting...";
+  setAugmentationProgress({ percent: 1, stage: "Starting", message: "Preparing data augmentation..." });
+
+  try {
+    const response = await fetch("./api/cleaner/augmentation/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    state.augmentationJobId = payload.job_id;
+    pollDataAugmentationStatus();
+    state.augmentationPollTimer = window.setInterval(pollDataAugmentationStatus, 1500);
+  } catch (error) {
+    els.runAugmentationButton.disabled = false;
+    els.runAugmentationButton.textContent = "Create Augmented Data";
+    showError("Could not start data augmentation", error);
+  }
+}
+
+async function pollDataAugmentationStatus() {
+  if (!state.augmentationJobId) return;
+  try {
+    const response = await fetch(`./api/cleaner/status?id=${encodeURIComponent(state.augmentationJobId)}`, {
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    setAugmentationProgress(payload.job);
+
+    if (payload.job.status === "completed") {
+      window.clearInterval(state.augmentationPollTimer);
+      els.runAugmentationButton.disabled = false;
+      els.runAugmentationButton.textContent = "Create Augmented Data";
+      const result = payload.job.result || {};
+      const outputPath = result.output_path || "";
+      renderAugmentationResult(result);
+      if (outputPath) {
+        if (els.datasetPathInput) els.datasetPathInput.value = outputPath;
+        if (els.cleanerDatasetPathInput) els.cleanerDatasetPathInput.value = outputPath;
+        if (els.textNormalizerDatasetPathInput) els.textNormalizerDatasetPathInput.value = outputPath;
+        if (els.durationFilterDatasetPathInput) els.durationFilterDatasetPathInput.value = outputPath;
+        if (els.augmentationDatasetPathInput) els.augmentationDatasetPathInput.value = outputPath;
+        if (els.duplicateDatasetPathInput) els.duplicateDatasetPathInput.value = outputPath;
+        const maxRows = Number(els.maxRowsInput?.value || 0);
+        await loadServerDataset({ path: outputPath, maxRows, silent: true });
+      }
+      showMessage(
+        "success",
+        "Data augmentation completed",
+        `Added ${Number(result.added_hours || 0).toFixed(2)}h across ${formatNumber(result.augmented_rows || 0)} augmented row(s).`,
+        outputPath,
+      );
+    } else if (payload.job.status === "failed") {
+      window.clearInterval(state.augmentationPollTimer);
+      els.runAugmentationButton.disabled = false;
+      els.runAugmentationButton.textContent = "Create Augmented Data";
+      showError("Data augmentation failed", payload.job.error || "The data augmentation job failed.", payload.job.log_tail || "");
+    }
+  } catch (error) {
+    window.clearInterval(state.augmentationPollTimer);
+    els.runAugmentationButton.disabled = false;
+    els.runAugmentationButton.textContent = "Create Augmented Data";
+    showError("Could not read data augmentation status", error);
   }
 }
 
@@ -1845,6 +2092,7 @@ async function pollDuplicateCleanerStatus() {
         if (els.cleanerDatasetPathInput) els.cleanerDatasetPathInput.value = outputPath;
         if (els.textNormalizerDatasetPathInput) els.textNormalizerDatasetPathInput.value = outputPath;
         if (els.durationFilterDatasetPathInput) els.durationFilterDatasetPathInput.value = outputPath;
+        if (els.augmentationDatasetPathInput) els.augmentationDatasetPathInput.value = outputPath;
         if (els.duplicateDatasetPathInput) els.duplicateDatasetPathInput.value = outputPath;
         const maxRows = Number(els.maxRowsInput?.value || 0);
         await loadServerDataset({ path: outputPath, maxRows, silent: true });
@@ -3238,6 +3486,8 @@ function bindEvents() {
   on(els.textNormalizerSaveModeInput, "change", setTextNormalizerSaveModeState);
   on(els.durationFilterForm, "submit", startDurationFilter);
   on(els.durationFilterSaveModeInput, "change", setDurationFilterSaveModeState);
+  on(els.augmentationForm, "submit", startDataAugmentation);
+  on(els.augmentationSaveModeInput, "change", setAugmentationSaveModeState);
   on(els.duplicateCleanerForm, "submit", startDuplicateCleaner);
   on(els.duplicateSaveModeInput, "change", setDuplicateSaveModeState);
   on(els.loadHfColumnsButton, "click", () => loadHfColumns());
@@ -3355,6 +3605,7 @@ bindEvents();
 setCleanerSaveModeState();
 setTextNormalizerSaveModeState();
 setDurationFilterSaveModeState();
+setAugmentationSaveModeState();
 setDuplicateSaveModeState();
 render();
 switchPage("viewer");

@@ -628,8 +628,8 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
               <p class="eyebrow">Datasets Cleaner</p>
               <h2>Remove bad samples from a saved speech dataset.</h2>
               <p>
-                Remove bad audio/text pairs, filter durations, normalize transcript
-                style, then remove repeated transcript rows from the Hugging Face dataset.
+                Remove bad audio/text pairs, filter durations, add augmentation,
+                normalize transcript style, then remove repeated transcript rows.
               </p>
             </div>
           </header>
@@ -970,6 +970,197 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
 
           <section class="panel form-panel">
             <div class="panel-heading">
+              <h2>Data Augmentation</h2>
+            </div>
+            <form class="form-grid cleaner-form" id="augmentationForm">
+              <label class="wide-field">
+                <span>Dataset path</span>
+                <input
+                  id="augmentationDatasetPathInput"
+                  type="text"
+                  value="/teamspace/studios/this_studio/darija_clean"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Audio column</span>
+                <input
+                  id="augmentationAudioColumnInput"
+                  type="text"
+                  placeholder="audio"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Duration column</span>
+                <input
+                  id="augmentationDurationColumnInput"
+                  type="text"
+                  placeholder="duration_seconds"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Split</span>
+                <input
+                  id="augmentationSplitInput"
+                  type="text"
+                  value="train"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Target extra %</span>
+                <input
+                  id="augmentationTargetPercentInput"
+                  type="number"
+                  min="0.1"
+                  step="1"
+                  value="50"
+                />
+              </label>
+              <label>
+                <span>Source column</span>
+                <input
+                  id="augmentationSourceColumnInput"
+                  type="text"
+                  value="source"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="wide-field">
+                <span>Include source contains</span>
+                <input
+                  id="augmentationIncludeSourcesInput"
+                  type="text"
+                  value="darija,doda,french,english"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="wide-field">
+                <span>Exclude source contains</span>
+                <input
+                  id="augmentationExcludeSourcesInput"
+                  type="text"
+                  value="tts,code_switch,codeswitch,code-switch,new_speakers"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Speed coverage %</span>
+                <input
+                  id="augmentationSpeedCoverageInput"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value="25"
+                />
+              </label>
+              <label>
+                <span>Noise coverage %</span>
+                <input
+                  id="augmentationNoiseCoverageInput"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value="25"
+                />
+              </label>
+              <label>
+                <span>Reverb coverage %</span>
+                <input
+                  id="augmentationReverbCoverageInput"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value="15"
+                />
+              </label>
+              <label>
+                <span>Telephony coverage %</span>
+                <input
+                  id="augmentationTelephonyCoverageInput"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value="30"
+                />
+              </label>
+              <label>
+                <span>Gain coverage %</span>
+                <input
+                  id="augmentationGainCoverageInput"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value="15"
+                />
+              </label>
+              <label>
+                <span>Max copies/original</span>
+                <input
+                  id="augmentationMaxCopiesInput"
+                  type="number"
+                  min="1"
+                  max="5"
+                  step="1"
+                  value="2"
+                />
+              </label>
+              <label>
+                <span>Random seed</span>
+                <input
+                  id="augmentationSeedInput"
+                  type="number"
+                  step="1"
+                  value="77"
+                />
+              </label>
+              <label class="wide-field">
+                <span>Save mode</span>
+                <select id="augmentationSaveModeInput">
+                  <option value="copy" selected>Save augmented copy</option>
+                  <option value="overwrite">Override original dataset</option>
+                </select>
+              </label>
+              <label class="wide-field" id="augmentationOutputPathField">
+                <span>New dataset path</span>
+                <input
+                  id="augmentationOutputPathInput"
+                  type="text"
+                  value="synthetic_cs_dataset/data_augmented/hf_dataset"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="checkbox-field" id="augmentationOverwriteOutputField">
+                <input id="augmentationOverwriteOutputInput" type="checkbox" />
+                <span>Overwrite output folder</span>
+              </label>
+              <button
+                class="button primary"
+                id="runAugmentationButton"
+                type="submit"
+              >
+                Create Augmented Data
+              </button>
+            </form>
+
+            <div class="progress-card" id="augmentationProgressCard" hidden>
+              <div class="progress-header">
+                <strong id="augmentationProgressLabel">Waiting</strong>
+                <span id="augmentationProgressPercent">0%</span>
+              </div>
+              <div class="progress-track" aria-label="Data augmentation progress">
+                <div class="progress-fill" id="augmentationProgressFill"></div>
+              </div>
+              <p class="hint" id="augmentationProgressDetails">No augmentation job running.</p>
+            </div>
+
+            <div class="result-box" id="augmentationResult" hidden></div>
+          </section>
+
+          <section class="panel form-panel">
+            <div class="panel-heading">
               <h2>Duplicate Text Removal</h2>
             </div>
             <form class="form-grid cleaner-form" id="duplicateCleanerForm">
@@ -1043,6 +1234,6 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="./app.js?v=studio9"></script>
+    <script src="./app.js?v=studio10"></script>
   </body>
 </html>

@@ -13,6 +13,7 @@ import importlib.util
 import json
 import mimetypes
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -56,6 +57,18 @@ DURATION_COLUMN_CANDIDATES = [
     "audio_duration",
     "audio_length",
 ]
+AUGMENTATION_META_DEFAULTS = {
+    "is_augmented": False,
+    "augmentation_id": "",
+    "augmentation_type": "",
+    "augmentation_variant": "",
+    "augmentation_parent_id": "",
+    "augmentation_parent_split": "",
+    "augmentation_parent_row": -1,
+    "augmentation_snr_db": 0.0,
+    "augmentation_speed_factor": 0.0,
+    "augmentation_gain_db": 0.0,
+}
 DEFAULT_DATASET_PATH = Path("/teamspace/studios/this_studio/darija_clean")
 GENERATION_JOBS: dict[str, dict] = {}
 GENERATION_LOCK = threading.Lock()
@@ -174,6 +187,9 @@ class DatasetViewerHandler(SimpleHTTPRequestHandler):
             return
         if parsed.path == "/api/cleaner/duration/start":
             self.start_duration_filter()
+            return
+        if parsed.path == "/api/cleaner/augmentation/start":
+            self.start_data_augmentation()
             return
         if parsed.path == "/api/cleaner/normalize-text/start":
             self.start_text_normalizer()
@@ -576,6 +592,39 @@ class DatasetViewerHandler(SimpleHTTPRequestHandler):
         thread.start()
         self.send_json({"ok": True, "job_id": job_id, "job": public_job(job)})
 
+    def start_data_augmentation(self) -> None:
+        try:
+            params = self.read_json_body()
+        except ValueError as exc:
+            self.send_error_json(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+
+        job_id = uuid.uuid4().hex[:12]
+        job = {
+            "id": job_id,
+            "ok": True,
+            "status": "queued",
+            "stage": "Queued",
+            "percent": 0,
+            "message": "Waiting to create augmented audio copies.",
+            "error": "",
+            "log_tail": "",
+            "started_at": time.time(),
+            "updated_at": time.time(),
+            "params": params,
+            "result": {},
+        }
+        with CLEANER_LOCK:
+            CLEANER_JOBS[job_id] = job
+
+        thread = threading.Thread(
+            target=run_data_augmentation_job,
+            args=(job_id, params, self.site_root),
+            daemon=True,
+        )
+        thread.start()
+        self.send_json({"ok": True, "job_id": job_id, "job": public_job(job)})
+
     def start_text_normalizer(self) -> None:
         try:
             params = self.read_json_body()
@@ -850,6 +899,24 @@ def collect_column_values(value) -> list[str]:
             seen.add(column)
             columns.append(column)
     return columns
+
+
+def collect_filter_terms(value) -> list[str]:
+    if isinstance(value, str):
+        candidates = re.split(r"[\n,]+", value)
+    elif isinstance(value, list):
+        candidates = value
+    else:
+        candidates = []
+
+    terms: list[str] = []
+    seen = set()
+    for candidate in candidates:
+        term = str(candidate or "").strip().strip("\"'").lower()
+        if term and term not in seen:
+            seen.add(term)
+            terms.append(term)
+    return terms
 
 
 def normalize_hf_dataset_repo_id(value: str) -> str:
@@ -1430,6 +1497,16 @@ def parse_cleaner_float(params: dict, key: str, default: float) -> float:
         raise RuntimeError(f"{key} must be a number.") from exc
 
 
+def parse_cleaner_int(params: dict, key: str, default: int) -> int:
+    value = params.get(key)
+    if value in (None, ""):
+        return int(default)
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f"{key} must be a whole number.") from exc
+
+
 def cleaner_bool(params: dict, key: str, default: bool) -> bool:
     if key not in params:
         return default
@@ -1573,6 +1650,140 @@ def parse_duration_seconds(value, column: str = "") -> float:
     if duration != duration or duration in (float("inf"), float("-inf")):
         return 0.0
     return duration
+
+
+def row_matches_source_filters(row: dict, source_column: str, include_terms: list[str], exclude_terms: list[str]) -> bool:
+    if not source_column:
+        return True
+    source = str(row.get(source_column) or "").lower()
+    if include_terms and not any(term in source for term in include_terms):
+        return False
+    if exclude_terms and any(term in source for term in exclude_terms):
+        return False
+    return True
+
+
+def load_augment_audio_helpers(site_root: Path):
+    helper_path = site_root / "synthetic_cs_dataset" / "scripts" / "augment_audio.py"
+    if not helper_path.exists():
+        raise RuntimeError(f"Audio augmentation helper was not found: {helper_path}")
+
+    module_name = f"augment_audio_{uuid.uuid4().hex}"
+    spec = importlib.util.spec_from_file_location(module_name, helper_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Could not load audio augmentation helper from {helper_path}")
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def fallback_time_stretch(audio, factor: float):
+    import numpy as np
+
+    if audio.size <= 1 or factor <= 0:
+        return audio
+    target_size = max(1, int(round(audio.size / factor)))
+    old_positions = np.linspace(0.0, 1.0, num=audio.size, dtype=np.float32)
+    new_positions = np.linspace(0.0, 1.0, num=target_size, dtype=np.float32)
+    return np.interp(new_positions, old_positions, audio).astype(np.float32)
+
+
+def speed_perturb_audio(audio, sample_rate: int, factor: float, helpers):
+    try:
+        import librosa
+
+        return helpers.peak_limit(librosa.effects.time_stretch(helpers.to_mono(audio), rate=factor))
+    except Exception:
+        return helpers.peak_limit(fallback_time_stretch(helpers.to_mono(audio), factor))
+
+
+def resample_audio(audio, orig_sr: int, target_sr: int):
+    if orig_sr == target_sr:
+        return audio
+    try:
+        import librosa
+
+        return librosa.resample(audio, orig_sr=orig_sr, target_sr=target_sr)
+    except Exception:
+        import numpy as np
+
+        if audio.size <= 1:
+            return audio
+        target_size = max(1, int(round(audio.size * (target_sr / orig_sr))))
+        old_positions = np.linspace(0.0, 1.0, num=audio.size, dtype=np.float32)
+        new_positions = np.linspace(0.0, 1.0, num=target_size, dtype=np.float32)
+        return np.interp(new_positions, old_positions, audio).astype(np.float32)
+
+
+def synthetic_noise_profile(kind: str, size: int, sample_rate: int, rng: random.Random):
+    import numpy as np
+
+    np_rng = np.random.default_rng(rng.randint(0, 2**32 - 1))
+    white = np_rng.normal(0.0, 1.0, size=size).astype(np.float32)
+    times = np.arange(size, dtype=np.float32) / max(sample_rate, 1)
+    kind = str(kind or "office").lower()
+
+    if kind == "office":
+        hum = 0.35 * np.sin(2 * np.pi * rng.choice([50.0, 60.0]) * times)
+        noise = 0.65 * white + hum.astype(np.float32)
+    elif kind == "call_center":
+        murmur = np.convolve(white, np.ones(180, dtype=np.float32) / 180, mode="same")
+        noise = 0.55 * white + 0.75 * murmur
+    elif kind == "cafe":
+        clinks = np.zeros(size, dtype=np.float32)
+        for _ in range(max(1, size // max(sample_rate * 2, 1))):
+            start = rng.randrange(0, max(size, 1))
+            length = min(size - start, rng.randrange(80, 360))
+            if length > 0:
+                clinks[start : start + length] += np_rng.normal(0.0, 2.0, size=length).astype(np.float32)
+        noise = 0.7 * white + 0.25 * np.convolve(white, np.ones(60, dtype=np.float32) / 60, mode="same") + 0.05 * clinks
+    elif kind == "street":
+        rumble = np.convolve(white, np.ones(900, dtype=np.float32) / 900, mode="same")
+        noise = 0.45 * white + 1.1 * rumble
+    elif kind == "home":
+        appliance = 0.25 * np.sin(2 * np.pi * rng.uniform(90.0, 140.0) * times)
+        noise = 0.55 * white + appliance.astype(np.float32)
+    else:
+        noise = white
+
+    rms = float(np.sqrt(np.mean(np.square(noise)))) if noise.size else 0.0
+    if rms > 1e-8:
+        noise = noise / rms
+    return noise.astype(np.float32)
+
+
+def add_profile_noise_at_snr(audio, sample_rate: int, rng: random.Random, snr_db: float, profile: str, helpers):
+    import numpy as np
+
+    clean = helpers.to_mono(audio)
+    rms = float(np.sqrt(np.mean(np.square(clean)))) if clean.size else 0.0
+    if rms < 1e-8:
+        return clean
+    noise = synthetic_noise_profile(profile, clean.size, sample_rate, rng)
+    target_noise_rms = rms / (10 ** (snr_db / 20.0))
+    return helpers.peak_limit(clean + (noise * target_noise_rms))
+
+
+def telephony_transform_audio(audio, sample_rate: int, rng: random.Random, helpers):
+    phone_sr = 8000
+    mono = helpers.to_mono(audio)
+    narrow = resample_audio(mono, sample_rate, phone_sr)
+    narrow = helpers.fft_bandpass(narrow, phone_sr, 300.0, 3400.0)
+    narrow = helpers.compress(narrow, threshold=rng.uniform(0.16, 0.28), ratio=rng.uniform(2.0, 3.2))
+    if rng.random() < 0.8:
+        narrow = helpers.mu_law_degrade(narrow)
+    if rng.random() < 0.35:
+        narrow = helpers.add_noise_at_snr(narrow, rng, snr_db=rng.uniform(18.0, 28.0))
+    restored = resample_audio(narrow, phone_sr, sample_rate)
+    restored = helpers.fft_bandpass(restored, sample_rate, 300.0, min(3400.0, sample_rate / 2 - 50))
+    return helpers.rms_normalize(helpers.peak_limit(restored), target_dbfs=-20.0)
+
+
+def gain_transform_audio(audio, rng: random.Random, helpers) -> tuple[object, float]:
+    gain_db = rng.uniform(-6.0, 6.0)
+    gained = helpers.to_mono(audio) * (10 ** (gain_db / 20.0))
+    return helpers.peak_limit(gained), gain_db
 
 
 def duration_sample_identity(row: dict) -> str:
@@ -1810,6 +2021,11 @@ def duration_filter_report_path(output_path: Path) -> Path:
     return output_path.parent / f"{output_path.name}_duration_filter_report_{stamp}.json"
 
 
+def augmentation_report_path(output_path: Path) -> Path:
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    return output_path.parent / f"{output_path.name}_augmentation_report_{stamp}.json"
+
+
 def text_normalization_report_path(output_path: Path) -> Path:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     return output_path.parent / f"{output_path.name}_text_normalization_report_{stamp}.json"
@@ -1870,6 +2086,31 @@ def duration_filter_output_path_for(
         resolve_hf_dataset_path(output_value, site_root, pipeline_dir, must_exist=False)
         if output_value
         else unique_path(dataset_path.with_name(f"{dataset_path.name}_duration_filtered"))
+    )
+    if output_path == dataset_path:
+        raise RuntimeError("Use Override original dataset when the output path is the input path.")
+    if output_path.exists() and not overwrite_output:
+        raise RuntimeError(f"Output path already exists: {output_path}. Enable overwrite or choose a new folder.")
+    return output_path
+
+
+def augmentation_output_path_for(
+    dataset_path: Path,
+    output_mode: str,
+    output_value: str,
+    overwrite_output: bool,
+    site_root: Path,
+    pipeline_dir: Path,
+) -> Path:
+    if output_mode not in {"copy", "overwrite"}:
+        raise RuntimeError("Save mode must be `copy` or `overwrite`.")
+    if output_mode == "overwrite":
+        return dataset_path
+
+    output_path = (
+        resolve_hf_dataset_path(output_value, site_root, pipeline_dir, must_exist=False)
+        if output_value
+        else unique_path(dataset_path.with_name(f"{dataset_path.name}_augmented"))
     )
     if output_path == dataset_path:
         raise RuntimeError("Use Override original dataset when the output path is the input path.")
@@ -2857,6 +3098,429 @@ def run_duration_filter_job(job_id: str, params: dict, site_root: Path) -> None:
             stage="Failed",
             percent=100,
             message="Duration filter failed.",
+            error=str(exc),
+            log_tail=str(exc),
+            result={"output_path": str(output_path) if output_path else ""},
+        )
+
+
+def run_data_augmentation_job(job_id: str, params: dict, site_root: Path) -> None:
+    pipeline_dir = site_root / "synthetic_cs_dataset"
+    output_path: Path | None = None
+    try:
+        dataset_value = str(params.get("dataset_path") or "").strip()
+        if not dataset_value:
+            raise RuntimeError("Missing dataset path.")
+
+        dataset_path = resolve_hf_dataset_path(dataset_value, site_root, pipeline_dir, must_exist=True)
+        if not dataset_path.exists():
+            raise RuntimeError(f"Dataset path was not found: {dataset_path}")
+
+        output_mode = str(params.get("output_mode") or "copy").strip()
+        output_value = str(params.get("output_path") or "").strip()
+        overwrite_output = cleaner_bool(params, "overwrite_output", False)
+        target_extra_percent = parse_cleaner_float(params, "target_extra_percent", 50.0)
+        if target_extra_percent <= 0:
+            raise RuntimeError("Target extra data percent must be greater than 0.")
+
+        split_name = str(params.get("split") or "train").strip()
+        source_column_request = str(params.get("source_column") or "source").strip()
+        include_terms = collect_filter_terms(params.get("include_source_terms") or "darija,doda,french,english")
+        exclude_terms = collect_filter_terms(
+            params.get("exclude_source_terms") or "tts,code_switch,codeswitch,code-switch,new_speakers"
+        )
+        max_copies_per_original = parse_cleaner_int(params, "max_copies_per_original", 2)
+        if max_copies_per_original < 1 or max_copies_per_original > 5:
+            raise RuntimeError("Max copies per original must be between 1 and 5.")
+        seed = parse_cleaner_int(params, "random_seed", 77)
+        rng = random.Random(seed)
+
+        coverage = {
+            "speed": parse_cleaner_float(params, "speed_coverage_percent", 25.0),
+            "noise": parse_cleaner_float(params, "noise_coverage_percent", 25.0),
+            "reverb": parse_cleaner_float(params, "reverb_coverage_percent", 15.0),
+            "telephony": parse_cleaner_float(params, "telephony_coverage_percent", 30.0),
+            "gain": parse_cleaner_float(params, "gain_coverage_percent", 15.0),
+        }
+        if any(value < 0 for value in coverage.values()):
+            raise RuntimeError("Augmentation coverage values must be 0 or greater.")
+        if not any(value > 0 for value in coverage.values()):
+            raise RuntimeError("Enable at least one augmentation coverage value.")
+
+        output_path = augmentation_output_path_for(
+            dataset_path,
+            output_mode,
+            output_value,
+            overwrite_output,
+            site_root,
+            pipeline_dir,
+        )
+        audio_output_dir = output_path.parent / "augmented_audio" / job_id
+        audio_output_dir.mkdir(parents=True, exist_ok=True)
+
+        update_cleaner_job(
+            job_id,
+            status="running",
+            stage="Loading",
+            percent=5,
+            message=f"Loading dataset from {dataset_path}",
+            result={"input_path": str(dataset_path), "output_path": str(output_path)},
+        )
+
+        try:
+            import numpy as np
+            import soundfile as sf
+            from datasets import Audio, Dataset, DatasetDict, concatenate_datasets, load_from_disk
+        except ImportError as exc:
+            raise RuntimeError("Install augmentation dependencies first: pip install datasets soundfile librosa numpy") from exc
+
+        helpers = load_augment_audio_helpers(site_root)
+        loaded = load_from_disk(str(dataset_path))
+        if isinstance(loaded, DatasetDict):
+            split_map = dict(loaded.items())
+            single_dataset = False
+        elif isinstance(loaded, Dataset):
+            split_map = {"train": loaded}
+            single_dataset = True
+        else:
+            raise RuntimeError(f"Unsupported Hugging Face dataset type at {dataset_path}")
+
+        if split_name and split_name not in split_map:
+            raise RuntimeError(f"Split `{split_name}` was not found. Available split(s): {', '.join(split_map)}")
+        target_splits = [split_name] if split_name else list(split_map.keys())
+
+        audio_column = infer_common_cleaner_column(
+            split_map,
+            str(params.get("audio_column") or "").strip(),
+            AUDIO_COLUMN_CANDIDATES,
+            "Audio",
+            audio=True,
+        )
+        duration_column = infer_optional_common_cleaner_column(
+            split_map,
+            str(params.get("duration_column") or "").strip(),
+            DURATION_COLUMN_CANDIDATES,
+            "Duration",
+        )
+        source_column = infer_optional_common_cleaner_column(
+            split_map,
+            source_column_request,
+            ["source"],
+            "Source",
+        ) if source_column_request else ""
+
+        prepared_splits = {
+            split: prepare_cleaner_audio_column(dataset, audio_column, Audio)
+            for split, dataset in split_map.items()
+        }
+
+        def add_metadata_defaults(row: dict) -> dict:
+            for key, default in AUGMENTATION_META_DEFAULTS.items():
+                if row.get(key) is None:
+                    row[key] = default
+            return row
+
+        enriched_splits = {
+            split: dataset.map(add_metadata_defaults)
+            for split, dataset in prepared_splits.items()
+        }
+
+        candidates: list[dict] = []
+        total_seconds = 0.0
+        eligible_seconds = 0.0
+        skipped: dict[str, int] = {}
+
+        for split in target_splits:
+            dataset = prepared_splits[split]
+            for index in range(len(dataset)):
+                row = dict(dataset[index])
+                duration = parse_duration_seconds(row.get(duration_column), duration_column) if duration_column else 0.0
+                audio_path = None
+                temp_audio = None
+                try:
+                    audio_path, temp_audio = materialize_cleaner_audio(row.get(audio_column), dataset_path, site_root)
+                    if duration <= 0 and audio_path is not None and audio_path.exists() and audio_path.is_file():
+                        duration = cleaner_audio_duration_seconds(audio_path)
+                except Exception:
+                    duration = 0.0
+                finally:
+                    if temp_audio:
+                        try:
+                            temp_audio.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+
+                if duration > 0:
+                    total_seconds += duration
+                if not row_matches_source_filters(row, source_column, include_terms, exclude_terms):
+                    skipped["source_filter"] = skipped.get("source_filter", 0) + 1
+                    continue
+                if audio_path is None or not audio_path.exists() or not audio_path.is_file():
+                    skipped["missing_audio"] = skipped.get("missing_audio", 0) + 1
+                    continue
+                if duration <= 0:
+                    skipped["invalid_duration"] = skipped.get("invalid_duration", 0) + 1
+                    continue
+                eligible_seconds += duration
+                candidates.append(
+                    {
+                        "split": split,
+                        "row": index,
+                        "data": row,
+                        "audio_path": audio_path,
+                        "duration": duration,
+                        "source": str(row.get(source_column) or "") if source_column else "",
+                        "used_types": set(),
+                        "copies": 0,
+                    }
+                )
+
+        if total_seconds <= 0:
+            raise RuntimeError("Could not measure dataset duration for augmentation.")
+        if not candidates:
+            raise RuntimeError("No eligible audio rows matched the augmentation source filters.")
+
+        target_seconds = total_seconds * (target_extra_percent / 100.0)
+        transform_caps = {
+            name: eligible_seconds * (percent / 100.0)
+            for name, percent in coverage.items()
+            if percent > 0
+        }
+        transform_added = {name: 0.0 for name in transform_caps}
+        transform_counts = {name: 0 for name in transform_caps}
+        augmented_rows_by_split: dict[str, list[dict]] = {split: [] for split in split_map}
+        augmented_samples: list[dict] = []
+        added_seconds = 0.0
+        attempts = 0
+        max_attempts = max(100, len(candidates) * max_copies_per_original * 4)
+        noise_profiles = ["office", "call_center", "cafe", "street", "home"]
+        last_update = 0.0
+
+        update_cleaner_job(
+            job_id,
+            stage="Planning",
+            percent=10,
+            message=(
+                f"Eligible real-data audio: {eligible_seconds / 3600.0:.2f}h. "
+                f"Target augmented audio: {target_seconds / 3600.0:.2f}h."
+            ),
+            result={
+                "input_path": str(dataset_path),
+                "output_path": str(output_path),
+                "eligible_hours": round(eligible_seconds / 3600.0, 3),
+                "target_added_hours": round(target_seconds / 3600.0, 3),
+            },
+        )
+
+        while added_seconds < target_seconds and attempts < max_attempts:
+            attempts += 1
+            available_candidates = [
+                candidate
+                for candidate in candidates
+                if candidate["copies"] < max_copies_per_original
+                and any(name not in candidate["used_types"] and transform_added[name] < transform_caps[name] for name in transform_caps)
+            ]
+            if not available_candidates:
+                break
+
+            candidate = rng.choice(available_candidates)
+            available_transforms = [
+                name
+                for name in transform_caps
+                if name not in candidate["used_types"] and transform_added[name] < transform_caps[name]
+            ]
+            if not available_transforms:
+                continue
+            weights = [max(transform_caps[name] - transform_added[name], 1.0) for name in available_transforms]
+            transform_type = rng.choices(available_transforms, weights=weights, k=1)[0]
+
+            try:
+                audio, sample_rate = sf.read(candidate["audio_path"], always_2d=False)
+                audio = helpers.to_mono(np.asarray(audio, dtype=np.float32))
+            except Exception as exc:
+                skipped["audio_read_failed"] = skipped.get("audio_read_failed", 0) + 1
+                candidate["used_types"].add(transform_type)
+                continue
+
+            variant = transform_type
+            snr_db = 0.0
+            speed_factor = 0.0
+            gain_db = 0.0
+            if transform_type == "speed":
+                speed_factor = rng.choice([0.9, 1.1])
+                variant = f"{speed_factor:.1f}x"
+                augmented = speed_perturb_audio(audio, sample_rate, speed_factor, helpers)
+            elif transform_type == "noise":
+                profile = rng.choice(noise_profiles)
+                snr_db = rng.uniform(10.0, 25.0)
+                variant = f"{profile}_{snr_db:.1f}db"
+                augmented = add_profile_noise_at_snr(audio, sample_rate, rng, snr_db, profile, helpers)
+            elif transform_type == "reverb":
+                variant = "room"
+                augmented = helpers.add_room_reverb(audio, sample_rate, rng)
+            elif transform_type == "telephony":
+                variant = "8khz_bandpass_codec"
+                augmented = telephony_transform_audio(audio, sample_rate, rng, helpers)
+            elif transform_type == "gain":
+                augmented, gain_db = gain_transform_audio(audio, rng, helpers)
+                variant = f"{gain_db:+.1f}db"
+            else:
+                candidate["used_types"].add(transform_type)
+                continue
+
+            augmented = helpers.peak_limit(np.asarray(augmented, dtype=np.float32))
+            if augmented.size <= 0:
+                skipped["empty_augmented_audio"] = skipped.get("empty_augmented_audio", 0) + 1
+                candidate["used_types"].add(transform_type)
+                continue
+
+            new_duration = float(augmented.size / sample_rate) if sample_rate else candidate["duration"]
+            source_id = bad_sample_identity(candidate["data"]) or f"{candidate['split']}-{candidate['row']}"
+            safe_source = safe_slug(source_id, candidate["split"], str(candidate["row"]))
+            filename = f"{safe_source}_{transform_type}_{uuid.uuid4().hex[:8]}.wav"
+            output_audio_path = audio_output_dir / filename
+            sf.write(str(output_audio_path), augmented, sample_rate)
+
+            augmented_row = dict(candidate["data"])
+            augmented_row[audio_column] = str(output_audio_path)
+            if duration_column:
+                augmented_row[duration_column] = round(new_duration, 3)
+            for key, default in AUGMENTATION_META_DEFAULTS.items():
+                augmented_row.setdefault(key, default)
+            augmented_row["is_augmented"] = True
+            augmented_row["augmentation_id"] = f"aug_{transform_type}_{uuid.uuid4().hex[:10]}"
+            augmented_row["augmentation_type"] = transform_type
+            augmented_row["augmentation_variant"] = variant
+            augmented_row["augmentation_parent_id"] = source_id
+            augmented_row["augmentation_parent_split"] = candidate["split"]
+            augmented_row["augmentation_parent_row"] = int(candidate["row"])
+            augmented_row["augmentation_snr_db"] = round(snr_db, 2)
+            augmented_row["augmentation_speed_factor"] = round(speed_factor, 2)
+            augmented_row["augmentation_gain_db"] = round(gain_db, 2)
+
+            augmented_rows_by_split[candidate["split"]].append(augmented_row)
+            candidate["used_types"].add(transform_type)
+            candidate["copies"] += 1
+            transform_added[transform_type] += new_duration
+            transform_counts[transform_type] += 1
+            added_seconds += new_duration
+            augmented_samples.append(
+                {
+                    "split": candidate["split"],
+                    "row": candidate["row"],
+                    "id": source_id,
+                    "source": candidate["source"],
+                    "augmentation_type": transform_type,
+                    "variant": variant,
+                    "duration_seconds": round(new_duration, 3),
+                    "audio_path": str(output_audio_path),
+                }
+            )
+
+            now = time.time()
+            if now - last_update >= 1.2 or added_seconds >= target_seconds:
+                percent = 12 + min(76, (added_seconds / target_seconds) * 76)
+                update_cleaner_job(
+                    job_id,
+                    stage="Creating augmentations",
+                    percent=round(percent, 1),
+                    message=(
+                        f"Added {added_seconds / 3600.0:.2f}h/{target_seconds / 3600.0:.2f}h "
+                        f"across {sum(transform_counts.values())} augmented copy/copies."
+                    ),
+                    result={
+                        "input_path": str(dataset_path),
+                        "output_path": str(output_path),
+                        "added_hours": round(added_seconds / 3600.0, 3),
+                        "target_added_hours": round(target_seconds / 3600.0, 3),
+                        "augmented_rows": sum(transform_counts.values()),
+                        "transform_counts": transform_counts,
+                    },
+                )
+                last_update = now
+
+        combined_splits = {}
+        original_rows_by_split = {split: len(dataset) for split, dataset in split_map.items()}
+        augmented_rows_by_split_count: dict[str, int] = {}
+        for split, dataset in enriched_splits.items():
+            rows = augmented_rows_by_split.get(split, [])
+            augmented_rows_by_split_count[split] = len(rows)
+            if rows:
+                augmented_dataset = Dataset.from_list(rows, features=dataset.features)
+                combined_splits[split] = concatenate_datasets([dataset, augmented_dataset])
+            else:
+                combined_splits[split] = dataset
+
+        augmented_dataset = combined_splits["train"] if single_dataset else DatasetDict(combined_splits)
+        total_augmented_rows = sum(augmented_rows_by_split_count.values())
+
+        update_cleaner_job(
+            job_id,
+            stage="Saving",
+            percent=92,
+            message=f"Saving augmented dataset to {output_path}",
+            result={
+                "input_path": str(dataset_path),
+                "output_path": str(output_path),
+                "added_hours": round(added_seconds / 3600.0, 3),
+                "augmented_rows": total_augmented_rows,
+                "transform_counts": transform_counts,
+            },
+        )
+
+        save_cleaner_dataset(augmented_dataset, output_path, output_mode, site_root, pipeline_dir)
+
+        report_path = augmentation_report_path(output_path)
+        result = {
+            "input_path": str(dataset_path),
+            "output_path": str(output_path),
+            "output_mode": output_mode,
+            "report_path": str(report_path),
+            "audio_output_dir": str(audio_output_dir),
+            "target_extra_percent": target_extra_percent,
+            "target_added_hours": round(target_seconds / 3600.0, 3),
+            "added_hours": round(added_seconds / 3600.0, 3),
+            "base_hours": round(total_seconds / 3600.0, 3),
+            "eligible_hours": round(eligible_seconds / 3600.0, 3),
+            "augmented_rows": total_augmented_rows,
+            "original_rows_by_split": original_rows_by_split,
+            "augmented_rows_by_split": augmented_rows_by_split_count,
+            "transform_counts": transform_counts,
+            "transform_added_hours": {
+                name: round(seconds / 3600.0, 3)
+                for name, seconds in transform_added.items()
+            },
+            "coverage_percent": coverage,
+            "source_column": source_column,
+            "include_source_terms": include_terms,
+            "exclude_source_terms": exclude_terms,
+            "max_copies_per_original": max_copies_per_original,
+            "random_seed": seed,
+            "skipped": skipped,
+            "augmented_samples_preview": augmented_samples[:25],
+        }
+        report_payload = dict(result)
+        report_payload["augmented_samples"] = augmented_samples
+        report_path.write_text(json.dumps(report_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        DatasetViewerHandler.dataset_cache.clear()
+        DatasetViewerHandler.dataset_path = output_path
+
+        update_cleaner_job(
+            job_id,
+            status="completed",
+            stage="Completed",
+            percent=100,
+            message=f"Added {added_seconds / 3600.0:.2f}h in {total_augmented_rows} augmented row(s). Dataset: {output_path}",
+            result=result,
+        )
+    except Exception as exc:
+        update_cleaner_job(
+            job_id,
+            status="failed",
+            stage="Failed",
+            percent=100,
+            message="Data augmentation failed.",
             error=str(exc),
             log_tail=str(exc),
             result={"output_path": str(output_path) if output_path else ""},

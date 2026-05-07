@@ -5,7 +5,7 @@ A local web tool for four workflows:
 - **Datasets Viewer**: load a server-side dataset path, choose a row preview limit, inspect rows, and play audio.
 - **Hugging Face Hub**: import datasets from the Hub, merge saved `hf_dataset` folders, and push datasets back to Hugging Face.
 - **Darija Code-Switch Generator**: run a one-sample smoke test or launch the synthetic Darija/French/English dataset pipeline.
-- **Datasets Cleaner**: remove bad ASR samples, normalize transcripts, cap English-source repeats, then remove duplicate transcript rows.
+- **Datasets Cleaner**: remove bad ASR samples, filter duration, normalize transcripts, then remove duplicate transcript rows.
 
 ## Run The Studio
 
@@ -77,11 +77,11 @@ Phase 1, **Bad Sample Removal**, removes rows that fail either check:
 - Whisper transcription CER above the threshold, default `0.6`
 - Transcript length outside the chars/sec range, default `5` to `22`
 
-Phase 2, **Transcript Normalization**, applies `tools/best_asr_text_normalizer.py` to a transcript column. By default it writes a `normalized_text` column, preserving Darija in Arabic script and French/English code-switch words in Latin script.
+Phase 2, **Duration Filtering**, keeps the default `1` to `30` second range and removes samples outside it, including clips under `0.7` seconds. It can read a duration column or fall back to measuring the audio column.
 
-Temporary phase, **Temporary English Repeat Cap**, only touches rows whose `source` value is `english_accent_4h`. It keeps at most four rows for each repeated transcript and leaves all other sources unchanged.
+Phase 3, **Transcript Normalization**, applies `tools/best_asr_text_normalizer.py` to a transcript column. By default it writes a `normalized_text` column, preserving Darija in Arabic script and French/English code-switch words in Latin script.
 
-Phase 3, **Duplicate Text Removal**, removes repeated transcript rows and keeps the first occurrence. By default it normalizes spaces, casing, and simple punctuation before matching duplicate text.
+Phase 4, **Duplicate Text Removal**, removes repeated transcript rows and keeps the first occurrence. By default it normalizes spaces, casing, and simple punctuation before matching duplicate text.
 
 Choose **Save cleaned copy** and enter a new output folder, or choose **Override original dataset**. When a job finishes, the page shows the removed sample count, the saved dataset path, and a JSON report path with removal details.
 

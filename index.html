@@ -628,8 +628,8 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
               <p class="eyebrow">Datasets Cleaner</p>
               <h2>Remove bad samples from a saved speech dataset.</h2>
               <p>
-                Remove bad audio/text pairs, normalize transcript style, then
-                remove repeated transcript rows from the Hugging Face dataset.
+                Remove bad audio/text pairs, filter durations, normalize transcript
+                style, then remove repeated transcript rows from the Hugging Face dataset.
               </p>
             </div>
           </header>
@@ -875,100 +875,97 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
 
           <section class="panel form-panel">
             <div class="panel-heading">
-              <h2>Temporary English Repeat Cap</h2>
+              <h2>Duration Filtering</h2>
             </div>
-            <form class="form-grid cleaner-form" id="englishCapForm">
+            <form class="form-grid cleaner-form" id="durationFilterForm">
               <label class="wide-field">
                 <span>Dataset path</span>
                 <input
-                  id="englishCapDatasetPathInput"
+                  id="durationFilterDatasetPathInput"
                   type="text"
                   value="/teamspace/studios/this_studio/darija_clean"
                   autocomplete="off"
                 />
               </label>
               <label>
-                <span>Transcript column</span>
+                <span>Duration column</span>
                 <input
-                  id="englishCapTranscriptColumnInput"
+                  id="durationFilterDurationColumnInput"
                   type="text"
-                  placeholder="text"
+                  placeholder="duration_seconds"
                   autocomplete="off"
                 />
               </label>
               <label>
-                <span>Source column</span>
+                <span>Audio column</span>
                 <input
-                  id="englishCapSourceColumnInput"
+                  id="durationFilterAudioColumnInput"
                   type="text"
-                  value="source"
+                  placeholder="audio"
                   autocomplete="off"
                 />
               </label>
               <label>
-                <span>Source value</span>
+                <span>Min seconds</span>
                 <input
-                  id="englishCapSourceValueInput"
-                  type="text"
-                  value="english_accent_4h"
-                  autocomplete="off"
-                />
-              </label>
-              <label>
-                <span>Max per text</span>
-                <input
-                  id="englishCapMaxPerTextInput"
+                  id="durationFilterMinSecondsInput"
                   type="number"
-                  min="1"
-                  step="1"
-                  value="4"
+                  min="0"
+                  step="0.1"
+                  value="1"
                 />
               </label>
-              <label class="checkbox-field">
-                <input id="englishCapNormalizeTextInput" type="checkbox" checked />
-                <span>Normalize text before matching</span>
+              <label>
+                <span>Max seconds</span>
+                <input
+                  id="durationFilterMaxSecondsInput"
+                  type="number"
+                  min="0.1"
+                  step="0.5"
+                  value="30"
+                />
               </label>
               <label class="wide-field">
                 <span>Save mode</span>
-                <select id="englishCapSaveModeInput">
-                  <option value="copy" selected>Save capped copy</option>
+                <select id="durationFilterSaveModeInput">
+                  <option value="copy" selected>Save duration-filtered copy</option>
                   <option value="overwrite">Override original dataset</option>
                 </select>
               </label>
-              <label class="wide-field" id="englishCapOutputPathField">
+              <label class="wide-field" id="durationFilterOutputPathField">
                 <span>New dataset path</span>
                 <input
-                  id="englishCapOutputPathInput"
+                  id="durationFilterOutputPathInput"
                   type="text"
-                  value="synthetic_cs_dataset/data_english_capped/hf_dataset"
+                  value="synthetic_cs_dataset/data_duration_filtered/hf_dataset"
                   autocomplete="off"
                 />
               </label>
-              <label class="checkbox-field" id="englishCapOverwriteOutputField">
-                <input id="englishCapOverwriteOutputInput" type="checkbox" />
+              <label class="checkbox-field" id="durationFilterOverwriteOutputField">
+                <input id="durationFilterOverwriteOutputInput" type="checkbox" />
                 <span>Overwrite output folder</span>
               </label>
               <button
                 class="button primary"
-                id="runEnglishCapButton"
+                id="runDurationFilterButton"
                 type="submit"
               >
-                Cap English Repeats
+                Filter Duration
               </button>
             </form>
 
-            <div class="progress-card" id="englishCapProgressCard" hidden>
+            <div class="progress-card" id="durationFilterProgressCard" hidden>
               <div class="progress-header">
-                <strong id="englishCapProgressLabel">Waiting</strong>
-                <span id="englishCapProgressPercent">0%</span>
+                <strong id="durationFilterProgressLabel">Waiting</strong>
+                <span id="durationFilterProgressPercent">0%</span>
               </div>
-              <div class="progress-track" aria-label="English repeat cap progress">
-                <div class="progress-fill" id="englishCapProgressFill"></div>
+              <div class="progress-track" aria-label="Duration filtering progress">
+                <div class="progress-fill" id="durationFilterProgressFill"></div>
               </div>
-              <p class="hint" id="englishCapProgressDetails">No English repeat cap job running.</p>
+              <p class="hint" id="durationFilterProgressDetails">No duration filter job running.</p>
             </div>
 
-            <div class="result-box" id="englishCapResult" hidden></div>
+            <div class="result-box" id="durationFilterResult" hidden></div>
           </section>
 
           <section class="panel form-panel">
@@ -1046,6 +1043,6 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="./app.js?v=studio8"></script>
+    <script src="./app.js?v=studio9"></script>
   </body>
 </html>

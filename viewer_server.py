@@ -45,6 +45,17 @@ AUDIO_COLUMN_CANDIDATES = [
     "wav",
     "clip",
 ]
+DURATION_COLUMN_CANDIDATES = [
+    "duration_seconds",
+    "duration",
+    "duration_s",
+    "duration_ms",
+    "seconds",
+    "secs",
+    "length_seconds",
+    "audio_duration",
+    "audio_length",
+]
 DEFAULT_DATASET_PATH = Path("/teamspace/studios/this_studio/darija_clean")
 GENERATION_JOBS: dict[str, dict] = {}
 GENERATION_LOCK = threading.Lock()
@@ -161,8 +172,8 @@ class DatasetViewerHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/cleaner/duplicates/start":
             self.start_duplicate_cleaner()
             return
-        if parsed.path == "/api/cleaner/english-source-cap/start":
-            self.start_english_source_capper()
+        if parsed.path == "/api/cleaner/duration/start":
+            self.start_duration_filter()
             return
         if parsed.path == "/api/cleaner/normalize-text/start":
             self.start_text_normalizer()
@@ -532,7 +543,7 @@ class DatasetViewerHandler(SimpleHTTPRequestHandler):
         thread.start()
         self.send_json({"ok": True, "job_id": job_id, "job": public_job(job)})
 
-    def start_english_source_capper(self) -> None:
+    def start_duration_filter(self) -> None:
         try:
             params = self.read_json_body()
         except ValueError as exc:
@@ -546,7 +557,7 @@ class DatasetViewerHandler(SimpleHTTPRequestHandler):
             "status": "queued",
             "stage": "Queued",
             "percent": 0,
-            "message": "Waiting to cap repeated English-source transcripts.",
+            "message": "Waiting to filter samples by duration.",
             "error": "",
             "log_tail": "",
             "started_at": time.time(),
@@ -558,7 +569,7 @@ class DatasetViewerHandler(SimpleHTTPRequestHandler):
             CLEANER_JOBS[job_id] = job
 
         thread = threading.Thread(
-            target=run_english_source_capper_job,
+            target=run_duration_filter_job,
             args=(job_id, params, self.site_root),
             daemon=True,
         )
@@ -1495,6 +1506,32 @@ def infer_common_cleaner_column(
     return column
 
 
+def infer_optional_common_cleaner_column(
+    split_map: dict[str, object],
+    requested: str,
+    candidates: list[str],
+    label: str,
+) -> str:
+    if requested:
+        return infer_common_cleaner_column(split_map, requested, candidates, label)
+    if not split_map:
+        return ""
+
+    first_dataset = next(iter(split_map.values()))
+    first_columns = list(getattr(first_dataset, "column_names", []) or [])
+    for candidate in candidates:
+        column = match_column(first_columns, candidate)
+        if column:
+            missing = [
+                split
+                for split, dataset in split_map.items()
+                if column not in list(getattr(dataset, "column_names", []) or [])
+            ]
+            if not missing:
+                return column
+    return ""
+
+
 def prepare_cleaner_audio_column(dataset, audio_column: str, audio_type):
     if column_feature_is_audio(dataset, audio_column):
         return dataset.cast_column(audio_column, audio_type(decode=False))
@@ -1503,6 +1540,43 @@ def prepare_cleaner_audio_column(dataset, audio_column: str, audio_type):
 
 def normalized_asr_text(value: str) -> str:
     return re.sub(r"\s+", " ", str(value or "").strip())
+
+
+def parse_duration_seconds(value, column: str = "") -> float:
+    if value in (None, ""):
+        return 0.0
+    text = str(value).strip()
+    if ":" in text:
+        parts = text.split(":")
+        try:
+            numbers = [float(part) for part in parts]
+        except ValueError:
+            numbers = []
+        if len(numbers) == 3:
+            return numbers[0] * 3600 + numbers[1] * 60 + numbers[2]
+        if len(numbers) == 2:
+            return numbers[0] * 60 + numbers[1]
+
+    try:
+        duration = float(value)
+    except (TypeError, ValueError):
+        match = re.search(r"-?\d+(?:\.\d+)?", text)
+        if not match:
+            return 0.0
+        duration = float(match.group(0))
+
+    lower = str(column or "").lower()
+    if lower.endswith("_ms") or lower in {"duration_ms", "milliseconds", "ms"}:
+        duration /= 1000.0
+    elif lower.endswith("_minutes") or lower in {"duration_min", "minutes", "mins"}:
+        duration *= 60.0
+    if duration != duration or duration in (float("inf"), float("-inf")):
+        return 0.0
+    return duration
+
+
+def duration_sample_identity(row: dict) -> str:
+    return bad_sample_identity(row)
 
 
 def load_best_asr_text_normalizer(site_root: Path):
@@ -1731,9 +1805,9 @@ def duplicate_report_path(output_path: Path) -> Path:
     return output_path.parent / f"{output_path.name}_duplicate_report_{stamp}.json"
 
 
-def english_source_cap_report_path(output_path: Path) -> Path:
+def duration_filter_report_path(output_path: Path) -> Path:
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    return output_path.parent / f"{output_path.name}_english_source_cap_report_{stamp}.json"
+    return output_path.parent / f"{output_path.name}_duration_filter_report_{stamp}.json"
 
 
 def text_normalization_report_path(output_path: Path) -> Path:
@@ -1779,7 +1853,7 @@ def duplicate_output_path_for(
     return output_path
 
 
-def english_source_cap_output_path_for(
+def duration_filter_output_path_for(
     dataset_path: Path,
     output_mode: str,
     output_value: str,
@@ -1795,7 +1869,7 @@ def english_source_cap_output_path_for(
     output_path = (
         resolve_hf_dataset_path(output_value, site_root, pipeline_dir, must_exist=False)
         if output_value
-        else unique_path(dataset_path.with_name(f"{dataset_path.name}_english_capped"))
+        else unique_path(dataset_path.with_name(f"{dataset_path.name}_duration_filtered"))
     )
     if output_path == dataset_path:
         raise RuntimeError("Use Override original dataset when the output path is the input path.")
@@ -2547,7 +2621,7 @@ def run_duplicate_cleaner_job(job_id: str, params: dict, site_root: Path) -> Non
         )
 
 
-def run_english_source_capper_job(job_id: str, params: dict, site_root: Path) -> None:
+def run_duration_filter_job(job_id: str, params: dict, site_root: Path) -> None:
     pipeline_dir = site_root / "synthetic_cs_dataset"
     output_path: Path | None = None
     try:
@@ -2562,19 +2636,12 @@ def run_english_source_capper_job(job_id: str, params: dict, site_root: Path) ->
         output_mode = str(params.get("output_mode") or "copy").strip()
         output_value = str(params.get("output_path") or "").strip()
         overwrite_output = cleaner_bool(params, "overwrite_output", False)
-        normalize_text = cleaner_bool(params, "normalize_text", True)
-        source_column_request = str(params.get("source_column") or "source").strip() or "source"
-        source_value = str(params.get("source_value") or "english_accent_4h").strip()
-        if not source_value:
-            raise RuntimeError("Missing source value.")
-        try:
-            max_per_text = int(params.get("max_per_text") or 4)
-        except (TypeError, ValueError) as exc:
-            raise RuntimeError("max_per_text must be a whole number.") from exc
-        if max_per_text < 1:
-            raise RuntimeError("max_per_text must be at least 1.")
+        min_seconds = parse_cleaner_float(params, "min_seconds", 1.0)
+        max_seconds = parse_cleaner_float(params, "max_seconds", 30.0)
+        if min_seconds < 0 or max_seconds <= 0 or min_seconds > max_seconds:
+            raise RuntimeError("Duration bounds must be positive, with min <= max.")
 
-        output_path = english_source_cap_output_path_for(
+        output_path = duration_filter_output_path_for(
             dataset_path,
             output_mode,
             output_value,
@@ -2593,7 +2660,7 @@ def run_english_source_capper_job(job_id: str, params: dict, site_root: Path) ->
         )
 
         try:
-            from datasets import Dataset, DatasetDict, load_from_disk
+            from datasets import Audio, Dataset, DatasetDict, load_from_disk
         except ImportError as exc:
             raise RuntimeError("Install the `datasets` package before cleaning datasets.") from exc
 
@@ -2607,86 +2674,96 @@ def run_english_source_capper_job(job_id: str, params: dict, site_root: Path) ->
         else:
             raise RuntimeError(f"Unsupported Hugging Face dataset type at {dataset_path}")
 
-        transcript_column = infer_common_cleaner_column(
+        duration_column = infer_optional_common_cleaner_column(
             split_map,
-            str(params.get("transcript_column") or "").strip(),
-            TRANSCRIPT_COLUMN_CANDIDATES,
-            "Transcript",
+            str(params.get("duration_column") or "").strip(),
+            DURATION_COLUMN_CANDIDATES,
+            "Duration",
         )
-        source_column = infer_common_cleaner_column(
-            split_map,
-            source_column_request,
-            ["source"],
-            "Source",
-        )
+        audio_column = ""
+        if not duration_column:
+            audio_column = infer_common_cleaner_column(
+                split_map,
+                str(params.get("audio_column") or "").strip(),
+                AUDIO_COLUMN_CANDIDATES,
+                "Audio",
+                audio=True,
+            )
 
         rows_by_split = {split: len(dataset) for split, dataset in split_map.items()}
         total_rows = sum(rows_by_split.values())
         if total_rows <= 0:
-            raise RuntimeError("The dataset has no rows to cap.")
+            raise RuntimeError("The dataset has no rows to filter.")
 
-        seen_counts: dict[str, int] = {}
-        kept_examples: dict[str, dict] = {}
-        capped_samples: list[dict] = []
-        capped_groups: set[str] = set()
+        duration_samples: list[dict] = []
         cleaned_splits = {}
         kept_by_split: dict[str, int] = {}
         removed_by_split: dict[str, int] = {}
-        source_rows_by_split: dict[str, int] = {}
-        source_rows = 0
+        short_removed = 0
+        long_removed = 0
+        invalid_removed = 0
         processed = 0
         last_update = 0.0
 
         for split, dataset in split_map.items():
+            prepared = prepare_cleaner_audio_column(dataset, audio_column, Audio) if audio_column else dataset
             good_indices: list[int] = []
-            split_source_rows = 0
-            for index in range(len(dataset)):
-                row = dict(dataset[index])
-                row_source = str(row.get(source_column) or "")
-                is_target_source = row_source == source_value
-                keep_row = True
-
-                if is_target_source:
-                    split_source_rows += 1
-                    source_rows += 1
-                    text = str(row.get(transcript_column) or "")
-                    key = normalize_duplicate_text(text, normalize_text)
-                    if key:
-                        seen_counts[key] = seen_counts.get(key, 0) + 1
-                        count = seen_counts[key]
-                        if count <= max_per_text:
-                            kept_examples.setdefault(
-                                key,
-                                {
-                                    "split": split,
-                                    "row": index,
-                                    "id": duplicate_sample_identity(row),
-                                },
-                            )
+            for index in range(len(prepared)):
+                row = dict(prepared[index])
+                duration = 0.0
+                details: dict = {
+                    "split": split,
+                    "row": index,
+                    "id": duration_sample_identity(row),
+                    "duration_seconds": 0.0,
+                    "reason": "",
+                }
+                temp_audio = None
+                try:
+                    if duration_column:
+                        duration = parse_duration_seconds(row.get(duration_column), duration_column)
+                        details["duration_source"] = duration_column
+                    else:
+                        audio_path, temp_audio = materialize_cleaner_audio(row.get(audio_column), dataset_path, site_root)
+                        details["duration_source"] = audio_column
+                        if audio_path is not None:
+                            details["audio_path"] = str(audio_path)
+                        if audio_path is None:
+                            details["reason"] = "missing_audio"
+                        elif not audio_path.exists():
+                            details["reason"] = "audio_not_found"
+                        elif not audio_path.is_file():
+                            details["reason"] = "audio_not_file"
                         else:
-                            keep_row = False
-                            capped_groups.add(key)
-                            first = kept_examples.get(key, {})
-                            capped_samples.append(
-                                {
-                                    "split": split,
-                                    "row": index,
-                                    "id": duplicate_sample_identity(row),
-                                    "source": row_source,
-                                    "text": normalized_asr_text(text),
-                                    "duplicate_key": key,
-                                    "occurrence": count,
-                                    "max_per_text": max_per_text,
-                                    "kept_example": {
-                                        "split": first.get("split"),
-                                        "row": first.get("row"),
-                                        "id": first.get("id"),
-                                    },
-                                    "reason": "english_source_text_over_cap",
-                                }
-                            )
+                            duration = cleaner_audio_duration_seconds(audio_path)
+                except Exception as exc:
+                    details["duration_error"] = str(exc)
+                    details["reason"] = "duration_check_failed"
+                finally:
+                    if temp_audio:
+                        try:
+                            temp_audio.unlink(missing_ok=True)
+                        except Exception:
+                            pass
 
-                if keep_row:
+                details["duration_seconds"] = round(duration, 3)
+                if not details["reason"]:
+                    if duration <= 0:
+                        details["reason"] = "missing_or_invalid_duration"
+                    elif duration < min_seconds:
+                        details["reason"] = "duration_too_short"
+                    elif duration > max_seconds:
+                        details["reason"] = "duration_too_long"
+
+                if details["reason"]:
+                    if details["reason"] == "duration_too_short":
+                        short_removed += 1
+                    elif details["reason"] == "duration_too_long":
+                        long_removed += 1
+                    else:
+                        invalid_removed += 1
+                    duration_samples.append(details)
+                else:
                     good_indices.append(index)
 
                 processed += 1
@@ -2695,46 +2772,41 @@ def run_english_source_capper_job(job_id: str, params: dict, site_root: Path) ->
                     percent = 12 + min(76, (processed / total_rows) * 76)
                     update_cleaner_job(
                         job_id,
-                        stage="Capping English repeats",
+                        stage="Filtering durations",
                         percent=round(percent, 1),
                         message=(
                             f"Checked {processed}/{total_rows} sample(s). "
-                            f"Removed {len(capped_samples)} row(s) from source `{source_value}`."
+                            f"Marked {len(duration_samples)} duration row(s) for removal."
                         ),
                         result={
                             "input_path": str(dataset_path),
                             "output_path": str(output_path),
                             "processed_rows": processed,
-                            "source_rows": source_rows,
-                            "removed_rows": len(capped_samples),
-                            "capped_text_groups": len(capped_groups),
+                            "removed_rows": len(duration_samples),
                             "rows_by_split": rows_by_split,
                         },
                     )
                     last_update = now
 
-            cleaned_splits[split] = dataset.select(good_indices)
+            cleaned_splits[split] = prepared.select(good_indices)
             kept_by_split[split] = len(good_indices)
-            removed_by_split[split] = len(dataset) - len(good_indices)
-            source_rows_by_split[split] = split_source_rows
+            removed_by_split[split] = len(prepared) - len(good_indices)
 
         cleaned = cleaned_splits["train"] if single_dataset else DatasetDict(cleaned_splits)
-        removed_rows = len(capped_samples)
+        removed_rows = len(duration_samples)
         kept_rows = sum(kept_by_split.values())
 
         update_cleaner_job(
             job_id,
             stage="Saving",
             percent=92,
-            message=f"Saving capped dataset to {output_path}",
+            message=f"Saving duration-filtered dataset to {output_path}",
             result={
                 "input_path": str(dataset_path),
                 "output_path": str(output_path),
                 "total_rows": total_rows,
-                "source_rows": source_rows,
                 "kept_rows": kept_rows,
                 "removed_rows": removed_rows,
-                "capped_text_groups": len(capped_groups),
                 "kept_by_split": kept_by_split,
                 "removed_by_split": removed_by_split,
             },
@@ -2742,30 +2814,29 @@ def run_english_source_capper_job(job_id: str, params: dict, site_root: Path) ->
 
         save_cleaner_dataset(cleaned, output_path, output_mode, site_root, pipeline_dir)
 
-        report_path = english_source_cap_report_path(output_path)
+        report_path = duration_filter_report_path(output_path)
         result = {
             "input_path": str(dataset_path),
             "output_path": str(output_path),
             "output_mode": output_mode,
             "report_path": str(report_path),
             "total_rows": total_rows,
-            "source_rows": source_rows,
             "kept_rows": kept_rows,
             "removed_rows": removed_rows,
-            "capped_text_groups": len(capped_groups),
+            "short_removed": short_removed,
+            "long_removed": long_removed,
+            "invalid_removed": invalid_removed,
             "rows_by_split": rows_by_split,
-            "source_rows_by_split": source_rows_by_split,
             "kept_by_split": kept_by_split,
             "removed_by_split": removed_by_split,
-            "transcript_column": transcript_column,
-            "source_column": source_column,
-            "source_value": source_value,
-            "max_per_text": max_per_text,
-            "normalize_text": normalize_text,
-            "capped_samples_preview": capped_samples[:25],
+            "duration_column": duration_column,
+            "audio_column": audio_column,
+            "min_seconds": min_seconds,
+            "max_seconds": max_seconds,
+            "duration_samples_preview": duration_samples[:25],
         }
         report_payload = dict(result)
-        report_payload["capped_samples"] = capped_samples
+        report_payload["duration_samples"] = duration_samples
         report_path.write_text(json.dumps(report_payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
         DatasetViewerHandler.dataset_cache.clear()
@@ -2776,7 +2847,7 @@ def run_english_source_capper_job(job_id: str, params: dict, site_root: Path) ->
             status="completed",
             stage="Completed",
             percent=100,
-            message=f"Removed {removed_rows} over-cap English source sample(s). Dataset: {output_path}",
+            message=f"Removed {removed_rows} duration sample(s). Dataset: {output_path}",
             result=result,
         )
     except Exception as exc:
@@ -2785,7 +2856,7 @@ def run_english_source_capper_job(job_id: str, params: dict, site_root: Path) ->
             status="failed",
             stage="Failed",
             percent=100,
-            message="English source repeat cap failed.",
+            message="Duration filter failed.",
             error=str(exc),
             log_tail=str(exc),
             result={"output_path": str(output_path) if output_path else ""},

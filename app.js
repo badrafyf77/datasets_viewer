@@ -55,8 +55,8 @@ const state = {
   cleanerPollTimer: null,
   textNormalizerJobId: null,
   textNormalizerPollTimer: null,
-  englishCapJobId: null,
-  englishCapPollTimer: null,
+  durationFilterJobId: null,
+  durationFilterPollTimer: null,
   duplicateCleanerJobId: null,
   duplicateCleanerPollTimer: null,
   mergedHfDatasetPath: "",
@@ -221,25 +221,24 @@ const els = {
   textNormalizerProgressFill: document.getElementById("textNormalizerProgressFill"),
   textNormalizerProgressDetails: document.getElementById("textNormalizerProgressDetails"),
   textNormalizerResult: document.getElementById("textNormalizerResult"),
-  englishCapForm: document.getElementById("englishCapForm"),
-  englishCapDatasetPathInput: document.getElementById("englishCapDatasetPathInput"),
-  englishCapTranscriptColumnInput: document.getElementById("englishCapTranscriptColumnInput"),
-  englishCapSourceColumnInput: document.getElementById("englishCapSourceColumnInput"),
-  englishCapSourceValueInput: document.getElementById("englishCapSourceValueInput"),
-  englishCapMaxPerTextInput: document.getElementById("englishCapMaxPerTextInput"),
-  englishCapNormalizeTextInput: document.getElementById("englishCapNormalizeTextInput"),
-  englishCapSaveModeInput: document.getElementById("englishCapSaveModeInput"),
-  englishCapOutputPathField: document.getElementById("englishCapOutputPathField"),
-  englishCapOutputPathInput: document.getElementById("englishCapOutputPathInput"),
-  englishCapOverwriteOutputField: document.getElementById("englishCapOverwriteOutputField"),
-  englishCapOverwriteOutputInput: document.getElementById("englishCapOverwriteOutputInput"),
-  runEnglishCapButton: document.getElementById("runEnglishCapButton"),
-  englishCapProgressCard: document.getElementById("englishCapProgressCard"),
-  englishCapProgressLabel: document.getElementById("englishCapProgressLabel"),
-  englishCapProgressPercent: document.getElementById("englishCapProgressPercent"),
-  englishCapProgressFill: document.getElementById("englishCapProgressFill"),
-  englishCapProgressDetails: document.getElementById("englishCapProgressDetails"),
-  englishCapResult: document.getElementById("englishCapResult"),
+  durationFilterForm: document.getElementById("durationFilterForm"),
+  durationFilterDatasetPathInput: document.getElementById("durationFilterDatasetPathInput"),
+  durationFilterDurationColumnInput: document.getElementById("durationFilterDurationColumnInput"),
+  durationFilterAudioColumnInput: document.getElementById("durationFilterAudioColumnInput"),
+  durationFilterMinSecondsInput: document.getElementById("durationFilterMinSecondsInput"),
+  durationFilterMaxSecondsInput: document.getElementById("durationFilterMaxSecondsInput"),
+  durationFilterSaveModeInput: document.getElementById("durationFilterSaveModeInput"),
+  durationFilterOutputPathField: document.getElementById("durationFilterOutputPathField"),
+  durationFilterOutputPathInput: document.getElementById("durationFilterOutputPathInput"),
+  durationFilterOverwriteOutputField: document.getElementById("durationFilterOverwriteOutputField"),
+  durationFilterOverwriteOutputInput: document.getElementById("durationFilterOverwriteOutputInput"),
+  runDurationFilterButton: document.getElementById("runDurationFilterButton"),
+  durationFilterProgressCard: document.getElementById("durationFilterProgressCard"),
+  durationFilterProgressLabel: document.getElementById("durationFilterProgressLabel"),
+  durationFilterProgressPercent: document.getElementById("durationFilterProgressPercent"),
+  durationFilterProgressFill: document.getElementById("durationFilterProgressFill"),
+  durationFilterProgressDetails: document.getElementById("durationFilterProgressDetails"),
+  durationFilterResult: document.getElementById("durationFilterResult"),
   duplicateCleanerForm: document.getElementById("duplicateCleanerForm"),
   duplicateDatasetPathInput: document.getElementById("duplicateDatasetPathInput"),
   duplicateTranscriptColumnInput: document.getElementById("duplicateTranscriptColumnInput"),
@@ -427,8 +426,8 @@ async function detectServerFeatures() {
     if (payload.default_dataset_path && els.textNormalizerDatasetPathInput) {
       els.textNormalizerDatasetPathInput.value = payload.default_dataset_path;
     }
-    if (payload.default_dataset_path && els.englishCapDatasetPathInput) {
-      els.englishCapDatasetPathInput.value = payload.default_dataset_path;
+    if (payload.default_dataset_path && els.durationFilterDatasetPathInput) {
+      els.durationFilterDatasetPathInput.value = payload.default_dataset_path;
     }
     if (payload.default_max_rows !== undefined && els.maxRowsInput) {
       els.maxRowsInput.value = String(payload.default_max_rows);
@@ -510,10 +509,10 @@ async function detectServerFeatures() {
       ? "Normalize transcript text with the Darija ASR normalizer."
       : "Requires python3 viewer_server.py.";
   }
-  if (els.runEnglishCapButton) {
-    els.runEnglishCapButton.disabled = !state.datasetCleanerAvailable;
-    els.runEnglishCapButton.title = state.datasetCleanerAvailable
-      ? "Keep at most N rows per repeated transcript for one source value."
+  if (els.runDurationFilterButton) {
+    els.runDurationFilterButton.disabled = !state.datasetCleanerAvailable;
+    els.runDurationFilterButton.title = state.datasetCleanerAvailable
+      ? "Remove samples outside the selected duration range."
       : "Requires python3 viewer_server.py.";
   }
 }
@@ -1199,10 +1198,10 @@ function setTextNormalizerSaveModeState() {
   if (els.textNormalizerOverwriteOutputField) els.textNormalizerOverwriteOutputField.hidden = isOverwrite;
 }
 
-function setEnglishCapSaveModeState() {
-  const isOverwrite = els.englishCapSaveModeInput?.value === "overwrite";
-  if (els.englishCapOutputPathField) els.englishCapOutputPathField.hidden = isOverwrite;
-  if (els.englishCapOverwriteOutputField) els.englishCapOverwriteOutputField.hidden = isOverwrite;
+function setDurationFilterSaveModeState() {
+  const isOverwrite = els.durationFilterSaveModeInput?.value === "overwrite";
+  if (els.durationFilterOutputPathField) els.durationFilterOutputPathField.hidden = isOverwrite;
+  if (els.durationFilterOverwriteOutputField) els.durationFilterOverwriteOutputField.hidden = isOverwrite;
 }
 
 function setCleanerProgress(status = {}) {
@@ -1231,14 +1230,14 @@ function setTextNormalizerProgress(status = {}) {
   );
 }
 
-function setEnglishCapProgress(status = {}) {
+function setDurationFilterProgress(status = {}) {
   setProgressElements(
     {
-      card: els.englishCapProgressCard,
-      fill: els.englishCapProgressFill,
-      percent: els.englishCapProgressPercent,
-      label: els.englishCapProgressLabel,
-      details: els.englishCapProgressDetails,
+      card: els.durationFilterProgressCard,
+      fill: els.durationFilterProgressFill,
+      percent: els.durationFilterProgressPercent,
+      label: els.durationFilterProgressLabel,
+      details: els.durationFilterProgressDetails,
     },
     status,
   );
@@ -1302,17 +1301,16 @@ function textNormalizerParamsFromForm() {
   };
 }
 
-function englishCapParamsFromForm() {
+function durationFilterParamsFromForm() {
   return {
-    dataset_path: els.englishCapDatasetPathInput?.value.trim() || "",
-    transcript_column: els.englishCapTranscriptColumnInput?.value.trim() || "",
-    source_column: els.englishCapSourceColumnInput?.value.trim() || "source",
-    source_value: els.englishCapSourceValueInput?.value.trim() || "english_accent_4h",
-    max_per_text: Number(els.englishCapMaxPerTextInput?.value || 4),
-    normalize_text: Boolean(els.englishCapNormalizeTextInput?.checked),
-    output_mode: els.englishCapSaveModeInput?.value || "copy",
-    output_path: els.englishCapOutputPathInput?.value.trim() || "",
-    overwrite_output: Boolean(els.englishCapOverwriteOutputInput?.checked),
+    dataset_path: els.durationFilterDatasetPathInput?.value.trim() || "",
+    duration_column: els.durationFilterDurationColumnInput?.value.trim() || "",
+    audio_column: els.durationFilterAudioColumnInput?.value.trim() || "",
+    min_seconds: Number(els.durationFilterMinSecondsInput?.value || 1),
+    max_seconds: Number(els.durationFilterMaxSecondsInput?.value || 30),
+    output_mode: els.durationFilterSaveModeInput?.value || "copy",
+    output_path: els.durationFilterOutputPathInput?.value.trim() || "",
+    overwrite_output: Boolean(els.durationFilterOverwriteOutputInput?.checked),
   };
 }
 
@@ -1386,34 +1384,38 @@ function renderTextNormalizerResult(result = {}) {
     .join("\n");
 }
 
-function renderEnglishCapResult(result = {}) {
-  if (!els.englishCapResult) return;
+function renderDurationFilterResult(result = {}) {
+  if (!els.durationFilterResult) return;
   const removed = Number(result.removed_rows || 0);
   const total = Number(result.total_rows || 0);
   const kept = Number(result.kept_rows || 0);
-  const sourceRows = Number(result.source_rows || 0);
-  const groups = Number(result.capped_text_groups || 0);
-  const maxPerText = Number(result.max_per_text || 4);
+  const shortRemoved = Number(result.short_removed || 0);
+  const longRemoved = Number(result.long_removed || 0);
+  const invalidRemoved = Number(result.invalid_removed || 0);
+  const minSeconds = Number(result.min_seconds || 1);
+  const maxSeconds = Number(result.max_seconds || 30);
   const outputPath = result.output_path || "";
   const reportPath = result.report_path || "";
   const removedBySplit = formatSplitCounts(result.removed_by_split);
-  const sourceValue = result.source_value || "english_accent_4h";
-  const preview = Array.isArray(result.capped_samples_preview)
-    ? result.capped_samples_preview.slice(0, 8)
+  const sourceColumn = result.duration_column || result.audio_column || "";
+  const preview = Array.isArray(result.duration_samples_preview)
+    ? result.duration_samples_preview.slice(0, 8)
     : [];
   const previewLines = preview.map((sample) => {
     const row = sample.row !== undefined ? `row ${formatNumber(Number(sample.row) + 1)}` : "row ?";
     const split = sample.split || "split";
-    const occurrence = sample.occurrence ? `occurrence ${sample.occurrence}` : "over cap";
+    const reason = sample.reason || "duration";
+    const seconds = sample.duration_seconds !== undefined ? `, ${sample.duration_seconds}s` : "";
     const id = sample.id ? `, ${sample.id}` : "";
-    return `- ${split} ${row}${id}: ${occurrence}`;
+    return `- ${split} ${row}${id}: ${reason}${seconds}`;
   });
 
-  els.englishCapResult.hidden = false;
-  els.englishCapResult.textContent = [
-    `Removed ${formatNumber(removed)} over-cap sample(s) from ${formatNumber(sourceRows)} ${sourceValue} row(s).`,
-    `Kept ${formatNumber(kept)} of ${formatNumber(total)} total row(s). Max per repeated text: ${formatNumber(maxPerText)}.`,
-    `Capped text groups: ${formatNumber(groups)}.`,
+  els.durationFilterResult.hidden = false;
+  els.durationFilterResult.textContent = [
+    `Removed ${formatNumber(removed)} sample(s) outside ${minSeconds}s to ${maxSeconds}s from ${formatNumber(total)} total.`,
+    `Kept ${formatNumber(kept)} sample(s).`,
+    `Short: ${formatNumber(shortRemoved)}. Long: ${formatNumber(longRemoved)}. Invalid/missing: ${formatNumber(invalidRemoved)}.`,
+    sourceColumn ? `Duration source: ${sourceColumn}.` : "",
     removedBySplit ? `Removed by split: ${removedBySplit}.` : "",
     outputPath ? `Saved dataset: ${outputPath}` : "",
     reportPath ? `Report: ${reportPath}` : "",
@@ -1537,7 +1539,7 @@ async function pollDatasetCleanerStatus() {
         if (els.datasetPathInput) els.datasetPathInput.value = outputPath;
         if (els.cleanerDatasetPathInput) els.cleanerDatasetPathInput.value = outputPath;
         if (els.textNormalizerDatasetPathInput) els.textNormalizerDatasetPathInput.value = outputPath;
-        if (els.englishCapDatasetPathInput) els.englishCapDatasetPathInput.value = outputPath;
+        if (els.durationFilterDatasetPathInput) els.durationFilterDatasetPathInput.value = outputPath;
         if (els.duplicateDatasetPathInput) els.duplicateDatasetPathInput.value = outputPath;
         const maxRows = Number(els.maxRowsInput?.value || 0);
         await loadServerDataset({ path: outputPath, maxRows, silent: true });
@@ -1638,7 +1640,7 @@ async function pollTextNormalizerStatus() {
         if (els.datasetPathInput) els.datasetPathInput.value = outputPath;
         if (els.cleanerDatasetPathInput) els.cleanerDatasetPathInput.value = outputPath;
         if (els.textNormalizerDatasetPathInput) els.textNormalizerDatasetPathInput.value = outputPath;
-        if (els.englishCapDatasetPathInput) els.englishCapDatasetPathInput.value = outputPath;
+        if (els.durationFilterDatasetPathInput) els.durationFilterDatasetPathInput.value = outputPath;
         if (els.duplicateDatasetPathInput) els.duplicateDatasetPathInput.value = outputPath;
         const maxRows = Number(els.maxRowsInput?.value || 0);
         await loadServerDataset({ path: outputPath, maxRows, silent: true });
@@ -1663,37 +1665,33 @@ async function pollTextNormalizerStatus() {
   }
 }
 
-async function startEnglishCapper(event) {
+async function startDurationFilter(event) {
   event.preventDefault();
   clearMessage();
   if (!state.datasetCleanerAvailable) {
     showError(
-      "English repeat cap unavailable",
+      "Duration filter unavailable",
       "Cleaning needs the Python backend.",
       "Start the app with `python3 viewer_server.py --host 0.0.0.0 --port 8000`.",
     );
     return;
   }
 
-  const params = englishCapParamsFromForm();
+  const params = durationFilterParamsFromForm();
   if (!params.dataset_path) {
-    showError("Missing dataset path", "Enter the Hugging Face dataset folder path before capping repeats.");
+    showError("Missing dataset path", "Enter the Hugging Face dataset folder path before filtering durations.");
     return;
   }
-  if (!params.source_column) {
-    showError("Missing source column", "Enter the source column name.");
+  if (!Number.isFinite(params.min_seconds) || !Number.isFinite(params.max_seconds)) {
+    showError("Invalid duration range", "Enter numeric duration bounds.");
     return;
   }
-  if (!params.source_value) {
-    showError("Missing source value", "Enter the source value to cap.");
-    return;
-  }
-  if (!Number.isFinite(params.max_per_text) || !Number.isInteger(params.max_per_text) || params.max_per_text < 1) {
-    showError("Invalid max per text", "Enter a whole number of at least 1.");
+  if (params.min_seconds < 0 || params.max_seconds <= 0 || params.min_seconds > params.max_seconds) {
+    showError("Invalid duration range", "Min seconds must be less than or equal to max seconds.");
     return;
   }
   if (params.output_mode === "copy" && !params.output_path) {
-    showError("Missing output path", "Enter a destination for the capped dataset copy.");
+    showError("Missing output path", "Enter a destination for the duration-filtered dataset copy.");
     return;
   }
   if (params.output_mode === "overwrite") {
@@ -1701,76 +1699,76 @@ async function startEnglishCapper(event) {
     if (!confirmed) return;
   }
 
-  window.clearInterval(state.englishCapPollTimer);
-  state.englishCapJobId = null;
-  if (els.englishCapResult) els.englishCapResult.hidden = true;
-  els.runEnglishCapButton.disabled = true;
-  els.runEnglishCapButton.textContent = "Capping...";
-  setEnglishCapProgress({ percent: 1, stage: "Starting", message: "Preparing English repeat cap..." });
+  window.clearInterval(state.durationFilterPollTimer);
+  state.durationFilterJobId = null;
+  if (els.durationFilterResult) els.durationFilterResult.hidden = true;
+  els.runDurationFilterButton.disabled = true;
+  els.runDurationFilterButton.textContent = "Filtering...";
+  setDurationFilterProgress({ percent: 1, stage: "Starting", message: "Preparing duration filtering..." });
 
   try {
-    const response = await fetch("./api/cleaner/english-source-cap/start", {
+    const response = await fetch("./api/cleaner/duration/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
-    state.englishCapJobId = payload.job_id;
-    pollEnglishCapStatus();
-    state.englishCapPollTimer = window.setInterval(pollEnglishCapStatus, 1500);
+    state.durationFilterJobId = payload.job_id;
+    pollDurationFilterStatus();
+    state.durationFilterPollTimer = window.setInterval(pollDurationFilterStatus, 1500);
   } catch (error) {
-    els.runEnglishCapButton.disabled = false;
-    els.runEnglishCapButton.textContent = "Cap English Repeats";
-    showError("Could not start English repeat cap", error);
+    els.runDurationFilterButton.disabled = false;
+    els.runDurationFilterButton.textContent = "Filter Duration";
+    showError("Could not start duration filter", error);
   }
 }
 
-async function pollEnglishCapStatus() {
-  if (!state.englishCapJobId) return;
+async function pollDurationFilterStatus() {
+  if (!state.durationFilterJobId) return;
   try {
-    const response = await fetch(`./api/cleaner/status?id=${encodeURIComponent(state.englishCapJobId)}`, {
+    const response = await fetch(`./api/cleaner/status?id=${encodeURIComponent(state.durationFilterJobId)}`, {
       cache: "no-store",
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
-    setEnglishCapProgress(payload.job);
+    setDurationFilterProgress(payload.job);
 
     if (payload.job.status === "completed") {
-      window.clearInterval(state.englishCapPollTimer);
-      els.runEnglishCapButton.disabled = false;
-      els.runEnglishCapButton.textContent = "Cap English Repeats";
+      window.clearInterval(state.durationFilterPollTimer);
+      els.runDurationFilterButton.disabled = false;
+      els.runDurationFilterButton.textContent = "Filter Duration";
       const result = payload.job.result || {};
       const outputPath = result.output_path || "";
-      renderEnglishCapResult(result);
+      renderDurationFilterResult(result);
       if (outputPath) {
         if (els.datasetPathInput) els.datasetPathInput.value = outputPath;
         if (els.cleanerDatasetPathInput) els.cleanerDatasetPathInput.value = outputPath;
         if (els.textNormalizerDatasetPathInput) els.textNormalizerDatasetPathInput.value = outputPath;
-        if (els.englishCapDatasetPathInput) els.englishCapDatasetPathInput.value = outputPath;
+        if (els.durationFilterDatasetPathInput) els.durationFilterDatasetPathInput.value = outputPath;
         if (els.duplicateDatasetPathInput) els.duplicateDatasetPathInput.value = outputPath;
         const maxRows = Number(els.maxRowsInput?.value || 0);
         await loadServerDataset({ path: outputPath, maxRows, silent: true });
       }
       showMessage(
         "success",
-        "English repeat cap completed",
-        `Removed ${formatNumber(result.removed_rows || 0)} over-cap sample(s) from ${formatNumber(
-          result.source_rows || 0,
-        )} English-source row(s).`,
+        "Duration filter completed",
+        `Removed ${formatNumber(result.removed_rows || 0)} duration sample(s) from ${formatNumber(
+          result.total_rows || 0,
+        )} total row(s).`,
         outputPath,
       );
     } else if (payload.job.status === "failed") {
-      window.clearInterval(state.englishCapPollTimer);
-      els.runEnglishCapButton.disabled = false;
-      els.runEnglishCapButton.textContent = "Cap English Repeats";
-      showError("English repeat cap failed", payload.job.error || "The English repeat cap job failed.", payload.job.log_tail || "");
+      window.clearInterval(state.durationFilterPollTimer);
+      els.runDurationFilterButton.disabled = false;
+      els.runDurationFilterButton.textContent = "Filter Duration";
+      showError("Duration filter failed", payload.job.error || "The duration filter job failed.", payload.job.log_tail || "");
     }
   } catch (error) {
-    window.clearInterval(state.englishCapPollTimer);
-    els.runEnglishCapButton.disabled = false;
-    els.runEnglishCapButton.textContent = "Cap English Repeats";
-    showError("Could not read English repeat cap status", error);
+    window.clearInterval(state.durationFilterPollTimer);
+    els.runDurationFilterButton.disabled = false;
+    els.runDurationFilterButton.textContent = "Filter Duration";
+    showError("Could not read duration filter status", error);
   }
 }
 
@@ -1846,7 +1844,7 @@ async function pollDuplicateCleanerStatus() {
         if (els.datasetPathInput) els.datasetPathInput.value = outputPath;
         if (els.cleanerDatasetPathInput) els.cleanerDatasetPathInput.value = outputPath;
         if (els.textNormalizerDatasetPathInput) els.textNormalizerDatasetPathInput.value = outputPath;
-        if (els.englishCapDatasetPathInput) els.englishCapDatasetPathInput.value = outputPath;
+        if (els.durationFilterDatasetPathInput) els.durationFilterDatasetPathInput.value = outputPath;
         if (els.duplicateDatasetPathInput) els.duplicateDatasetPathInput.value = outputPath;
         const maxRows = Number(els.maxRowsInput?.value || 0);
         await loadServerDataset({ path: outputPath, maxRows, silent: true });
@@ -3238,8 +3236,8 @@ function bindEvents() {
   on(els.cleanerSaveModeInput, "change", setCleanerSaveModeState);
   on(els.textNormalizerForm, "submit", startTextNormalizer);
   on(els.textNormalizerSaveModeInput, "change", setTextNormalizerSaveModeState);
-  on(els.englishCapForm, "submit", startEnglishCapper);
-  on(els.englishCapSaveModeInput, "change", setEnglishCapSaveModeState);
+  on(els.durationFilterForm, "submit", startDurationFilter);
+  on(els.durationFilterSaveModeInput, "change", setDurationFilterSaveModeState);
   on(els.duplicateCleanerForm, "submit", startDuplicateCleaner);
   on(els.duplicateSaveModeInput, "change", setDuplicateSaveModeState);
   on(els.loadHfColumnsButton, "click", () => loadHfColumns());
@@ -3356,7 +3354,7 @@ function bindEvents() {
 bindEvents();
 setCleanerSaveModeState();
 setTextNormalizerSaveModeState();
-setEnglishCapSaveModeState();
+setDurationFilterSaveModeState();
 setDuplicateSaveModeState();
 render();
 switchPage("viewer");

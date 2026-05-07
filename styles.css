@@ -462,13 +462,6 @@ summary:focus-visible {
   text-transform: none;
 }
 
-.publish-panel {
-  display: grid;
-  gap: 12px;
-  border-top: 1px solid var(--line);
-  padding-top: 12px;
-}
-
 .result-box {
   border: 1px solid var(--line);
   border-radius: 8px;

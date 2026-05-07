@@ -55,6 +55,8 @@ const state = {
   cleanerPollTimer: null,
   textNormalizerJobId: null,
   textNormalizerPollTimer: null,
+  englishCapJobId: null,
+  englishCapPollTimer: null,
   duplicateCleanerJobId: null,
   duplicateCleanerPollTimer: null,
   mergedHfDatasetPath: "",
@@ -63,9 +65,11 @@ const state = {
 
 const els = {
   navViewer: document.getElementById("navViewer"),
+  navHfHub: document.getElementById("navHfHub"),
   navGenerator: document.getElementById("navGenerator"),
   navCleaner: document.getElementById("navCleaner"),
   datasetPage: document.getElementById("datasetPage"),
+  hfHubPage: document.getElementById("hfHubPage"),
   generatorPage: document.getElementById("generatorPage"),
   cleanerPage: document.getElementById("cleanerPage"),
   messagePanel: document.getElementById("messagePanel"),
@@ -217,6 +221,25 @@ const els = {
   textNormalizerProgressFill: document.getElementById("textNormalizerProgressFill"),
   textNormalizerProgressDetails: document.getElementById("textNormalizerProgressDetails"),
   textNormalizerResult: document.getElementById("textNormalizerResult"),
+  englishCapForm: document.getElementById("englishCapForm"),
+  englishCapDatasetPathInput: document.getElementById("englishCapDatasetPathInput"),
+  englishCapTranscriptColumnInput: document.getElementById("englishCapTranscriptColumnInput"),
+  englishCapSourceColumnInput: document.getElementById("englishCapSourceColumnInput"),
+  englishCapSourceValueInput: document.getElementById("englishCapSourceValueInput"),
+  englishCapMaxPerTextInput: document.getElementById("englishCapMaxPerTextInput"),
+  englishCapNormalizeTextInput: document.getElementById("englishCapNormalizeTextInput"),
+  englishCapSaveModeInput: document.getElementById("englishCapSaveModeInput"),
+  englishCapOutputPathField: document.getElementById("englishCapOutputPathField"),
+  englishCapOutputPathInput: document.getElementById("englishCapOutputPathInput"),
+  englishCapOverwriteOutputField: document.getElementById("englishCapOverwriteOutputField"),
+  englishCapOverwriteOutputInput: document.getElementById("englishCapOverwriteOutputInput"),
+  runEnglishCapButton: document.getElementById("runEnglishCapButton"),
+  englishCapProgressCard: document.getElementById("englishCapProgressCard"),
+  englishCapProgressLabel: document.getElementById("englishCapProgressLabel"),
+  englishCapProgressPercent: document.getElementById("englishCapProgressPercent"),
+  englishCapProgressFill: document.getElementById("englishCapProgressFill"),
+  englishCapProgressDetails: document.getElementById("englishCapProgressDetails"),
+  englishCapResult: document.getElementById("englishCapResult"),
   duplicateCleanerForm: document.getElementById("duplicateCleanerForm"),
   duplicateDatasetPathInput: document.getElementById("duplicateDatasetPathInput"),
   duplicateTranscriptColumnInput: document.getElementById("duplicateTranscriptColumnInput"),
@@ -327,9 +350,11 @@ function clearMessage() {
 function switchPage(page) {
   state.activePage = page;
   els.datasetPage.hidden = page !== "viewer";
+  if (els.hfHubPage) els.hfHubPage.hidden = page !== "hfHub";
   els.generatorPage.hidden = page !== "generator";
   if (els.cleanerPage) els.cleanerPage.hidden = page !== "cleaner";
   els.navViewer.classList.toggle("is-active", page === "viewer");
+  if (els.navHfHub) els.navHfHub.classList.toggle("is-active", page === "hfHub");
   els.navGenerator.classList.toggle("is-active", page === "generator");
   if (els.navCleaner) els.navCleaner.classList.toggle("is-active", page === "cleaner");
 }
@@ -402,11 +427,15 @@ async function detectServerFeatures() {
     if (payload.default_dataset_path && els.textNormalizerDatasetPathInput) {
       els.textNormalizerDatasetPathInput.value = payload.default_dataset_path;
     }
+    if (payload.default_dataset_path && els.englishCapDatasetPathInput) {
+      els.englishCapDatasetPathInput.value = payload.default_dataset_path;
+    }
     if (payload.default_max_rows !== undefined && els.maxRowsInput) {
       els.maxRowsInput.value = String(payload.default_max_rows);
     }
     if (els.serverInfoText) {
-      els.serverInfoText.textContent = "Backend ready. Dataset loading, generation, and cleaning actions are available.";
+      els.serverInfoText.textContent =
+        "Backend ready. Dataset loading, Hugging Face tools, generation, and cleaning actions are available.";
     }
   } catch {
     state.serverAvailable = false;
@@ -415,7 +444,8 @@ async function detectServerFeatures() {
     state.hfDatasetToolsAvailable = false;
     state.datasetCleanerAvailable = false;
     if (els.serverInfoText) {
-      els.serverInfoText.textContent = "Static mode. Use viewer_server.py to load server paths, generate audio, or clean datasets.";
+      els.serverInfoText.textContent =
+        "Static mode. Use viewer_server.py to load server paths, use Hugging Face tools, generate audio, or clean datasets.";
     }
   }
 
@@ -478,6 +508,12 @@ async function detectServerFeatures() {
     els.runTextNormalizerButton.disabled = !state.datasetCleanerAvailable;
     els.runTextNormalizerButton.title = state.datasetCleanerAvailable
       ? "Normalize transcript text with the Darija ASR normalizer."
+      : "Requires python3 viewer_server.py.";
+  }
+  if (els.runEnglishCapButton) {
+    els.runEnglishCapButton.disabled = !state.datasetCleanerAvailable;
+    els.runEnglishCapButton.title = state.datasetCleanerAvailable
+      ? "Keep at most N rows per repeated transcript for one source value."
       : "Requires python3 viewer_server.py.";
   }
 }
@@ -1163,6 +1199,12 @@ function setTextNormalizerSaveModeState() {
   if (els.textNormalizerOverwriteOutputField) els.textNormalizerOverwriteOutputField.hidden = isOverwrite;
 }
 
+function setEnglishCapSaveModeState() {
+  const isOverwrite = els.englishCapSaveModeInput?.value === "overwrite";
+  if (els.englishCapOutputPathField) els.englishCapOutputPathField.hidden = isOverwrite;
+  if (els.englishCapOverwriteOutputField) els.englishCapOverwriteOutputField.hidden = isOverwrite;
+}
+
 function setCleanerProgress(status = {}) {
   setProgressElements(
     {
@@ -1184,6 +1226,19 @@ function setTextNormalizerProgress(status = {}) {
       percent: els.textNormalizerProgressPercent,
       label: els.textNormalizerProgressLabel,
       details: els.textNormalizerProgressDetails,
+    },
+    status,
+  );
+}
+
+function setEnglishCapProgress(status = {}) {
+  setProgressElements(
+    {
+      card: els.englishCapProgressCard,
+      fill: els.englishCapProgressFill,
+      percent: els.englishCapProgressPercent,
+      label: els.englishCapProgressLabel,
+      details: els.englishCapProgressDetails,
     },
     status,
   );
@@ -1244,6 +1299,20 @@ function textNormalizerParamsFromForm() {
     output_mode: els.textNormalizerSaveModeInput?.value || "copy",
     output_path: els.textNormalizerOutputPathInput?.value.trim() || "",
     overwrite_output: Boolean(els.textNormalizerOverwriteOutputInput?.checked),
+  };
+}
+
+function englishCapParamsFromForm() {
+  return {
+    dataset_path: els.englishCapDatasetPathInput?.value.trim() || "",
+    transcript_column: els.englishCapTranscriptColumnInput?.value.trim() || "",
+    source_column: els.englishCapSourceColumnInput?.value.trim() || "source",
+    source_value: els.englishCapSourceValueInput?.value.trim() || "english_accent_4h",
+    max_per_text: Number(els.englishCapMaxPerTextInput?.value || 4),
+    normalize_text: Boolean(els.englishCapNormalizeTextInput?.checked),
+    output_mode: els.englishCapSaveModeInput?.value || "copy",
+    output_path: els.englishCapOutputPathInput?.value.trim() || "",
+    overwrite_output: Boolean(els.englishCapOverwriteOutputInput?.checked),
   };
 }
 
@@ -1309,6 +1378,43 @@ function renderTextNormalizerResult(result = {}) {
     `Normalized ${formatNumber(total)} row(s). Changed ${formatNumber(changed)} transcript(s).`,
     `Output column: ${outputColumn}.`,
     changedBySplit ? `Changed by split: ${changedBySplit}.` : "",
+    outputPath ? `Saved dataset: ${outputPath}` : "",
+    reportPath ? `Report: ${reportPath}` : "",
+    previewLines.length ? `Preview:\n${previewLines.join("\n")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function renderEnglishCapResult(result = {}) {
+  if (!els.englishCapResult) return;
+  const removed = Number(result.removed_rows || 0);
+  const total = Number(result.total_rows || 0);
+  const kept = Number(result.kept_rows || 0);
+  const sourceRows = Number(result.source_rows || 0);
+  const groups = Number(result.capped_text_groups || 0);
+  const maxPerText = Number(result.max_per_text || 4);
+  const outputPath = result.output_path || "";
+  const reportPath = result.report_path || "";
+  const removedBySplit = formatSplitCounts(result.removed_by_split);
+  const sourceValue = result.source_value || "english_accent_4h";
+  const preview = Array.isArray(result.capped_samples_preview)
+    ? result.capped_samples_preview.slice(0, 8)
+    : [];
+  const previewLines = preview.map((sample) => {
+    const row = sample.row !== undefined ? `row ${formatNumber(Number(sample.row) + 1)}` : "row ?";
+    const split = sample.split || "split";
+    const occurrence = sample.occurrence ? `occurrence ${sample.occurrence}` : "over cap";
+    const id = sample.id ? `, ${sample.id}` : "";
+    return `- ${split} ${row}${id}: ${occurrence}`;
+  });
+
+  els.englishCapResult.hidden = false;
+  els.englishCapResult.textContent = [
+    `Removed ${formatNumber(removed)} over-cap sample(s) from ${formatNumber(sourceRows)} ${sourceValue} row(s).`,
+    `Kept ${formatNumber(kept)} of ${formatNumber(total)} total row(s). Max per repeated text: ${formatNumber(maxPerText)}.`,
+    `Capped text groups: ${formatNumber(groups)}.`,
+    removedBySplit ? `Removed by split: ${removedBySplit}.` : "",
     outputPath ? `Saved dataset: ${outputPath}` : "",
     reportPath ? `Report: ${reportPath}` : "",
     previewLines.length ? `Preview:\n${previewLines.join("\n")}` : "",
@@ -1431,6 +1537,7 @@ async function pollDatasetCleanerStatus() {
         if (els.datasetPathInput) els.datasetPathInput.value = outputPath;
         if (els.cleanerDatasetPathInput) els.cleanerDatasetPathInput.value = outputPath;
         if (els.textNormalizerDatasetPathInput) els.textNormalizerDatasetPathInput.value = outputPath;
+        if (els.englishCapDatasetPathInput) els.englishCapDatasetPathInput.value = outputPath;
         if (els.duplicateDatasetPathInput) els.duplicateDatasetPathInput.value = outputPath;
         const maxRows = Number(els.maxRowsInput?.value || 0);
         await loadServerDataset({ path: outputPath, maxRows, silent: true });
@@ -1531,6 +1638,7 @@ async function pollTextNormalizerStatus() {
         if (els.datasetPathInput) els.datasetPathInput.value = outputPath;
         if (els.cleanerDatasetPathInput) els.cleanerDatasetPathInput.value = outputPath;
         if (els.textNormalizerDatasetPathInput) els.textNormalizerDatasetPathInput.value = outputPath;
+        if (els.englishCapDatasetPathInput) els.englishCapDatasetPathInput.value = outputPath;
         if (els.duplicateDatasetPathInput) els.duplicateDatasetPathInput.value = outputPath;
         const maxRows = Number(els.maxRowsInput?.value || 0);
         await loadServerDataset({ path: outputPath, maxRows, silent: true });
@@ -1552,6 +1660,117 @@ async function pollTextNormalizerStatus() {
     els.runTextNormalizerButton.disabled = false;
     els.runTextNormalizerButton.textContent = "Normalize Text";
     showError("Could not read text normalizer status", error);
+  }
+}
+
+async function startEnglishCapper(event) {
+  event.preventDefault();
+  clearMessage();
+  if (!state.datasetCleanerAvailable) {
+    showError(
+      "English repeat cap unavailable",
+      "Cleaning needs the Python backend.",
+      "Start the app with `python3 viewer_server.py --host 0.0.0.0 --port 8000`.",
+    );
+    return;
+  }
+
+  const params = englishCapParamsFromForm();
+  if (!params.dataset_path) {
+    showError("Missing dataset path", "Enter the Hugging Face dataset folder path before capping repeats.");
+    return;
+  }
+  if (!params.source_column) {
+    showError("Missing source column", "Enter the source column name.");
+    return;
+  }
+  if (!params.source_value) {
+    showError("Missing source value", "Enter the source value to cap.");
+    return;
+  }
+  if (!Number.isFinite(params.max_per_text) || !Number.isInteger(params.max_per_text) || params.max_per_text < 1) {
+    showError("Invalid max per text", "Enter a whole number of at least 1.");
+    return;
+  }
+  if (params.output_mode === "copy" && !params.output_path) {
+    showError("Missing output path", "Enter a destination for the capped dataset copy.");
+    return;
+  }
+  if (params.output_mode === "overwrite") {
+    const confirmed = window.confirm(`Override the original dataset at ${params.dataset_path}?`);
+    if (!confirmed) return;
+  }
+
+  window.clearInterval(state.englishCapPollTimer);
+  state.englishCapJobId = null;
+  if (els.englishCapResult) els.englishCapResult.hidden = true;
+  els.runEnglishCapButton.disabled = true;
+  els.runEnglishCapButton.textContent = "Capping...";
+  setEnglishCapProgress({ percent: 1, stage: "Starting", message: "Preparing English repeat cap..." });
+
+  try {
+    const response = await fetch("./api/cleaner/english-source-cap/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    state.englishCapJobId = payload.job_id;
+    pollEnglishCapStatus();
+    state.englishCapPollTimer = window.setInterval(pollEnglishCapStatus, 1500);
+  } catch (error) {
+    els.runEnglishCapButton.disabled = false;
+    els.runEnglishCapButton.textContent = "Cap English Repeats";
+    showError("Could not start English repeat cap", error);
+  }
+}
+
+async function pollEnglishCapStatus() {
+  if (!state.englishCapJobId) return;
+  try {
+    const response = await fetch(`./api/cleaner/status?id=${encodeURIComponent(state.englishCapJobId)}`, {
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    setEnglishCapProgress(payload.job);
+
+    if (payload.job.status === "completed") {
+      window.clearInterval(state.englishCapPollTimer);
+      els.runEnglishCapButton.disabled = false;
+      els.runEnglishCapButton.textContent = "Cap English Repeats";
+      const result = payload.job.result || {};
+      const outputPath = result.output_path || "";
+      renderEnglishCapResult(result);
+      if (outputPath) {
+        if (els.datasetPathInput) els.datasetPathInput.value = outputPath;
+        if (els.cleanerDatasetPathInput) els.cleanerDatasetPathInput.value = outputPath;
+        if (els.textNormalizerDatasetPathInput) els.textNormalizerDatasetPathInput.value = outputPath;
+        if (els.englishCapDatasetPathInput) els.englishCapDatasetPathInput.value = outputPath;
+        if (els.duplicateDatasetPathInput) els.duplicateDatasetPathInput.value = outputPath;
+        const maxRows = Number(els.maxRowsInput?.value || 0);
+        await loadServerDataset({ path: outputPath, maxRows, silent: true });
+      }
+      showMessage(
+        "success",
+        "English repeat cap completed",
+        `Removed ${formatNumber(result.removed_rows || 0)} over-cap sample(s) from ${formatNumber(
+          result.source_rows || 0,
+        )} English-source row(s).`,
+        outputPath,
+      );
+    } else if (payload.job.status === "failed") {
+      window.clearInterval(state.englishCapPollTimer);
+      els.runEnglishCapButton.disabled = false;
+      els.runEnglishCapButton.textContent = "Cap English Repeats";
+      showError("English repeat cap failed", payload.job.error || "The English repeat cap job failed.", payload.job.log_tail || "");
+    }
+  } catch (error) {
+    window.clearInterval(state.englishCapPollTimer);
+    els.runEnglishCapButton.disabled = false;
+    els.runEnglishCapButton.textContent = "Cap English Repeats";
+    showError("Could not read English repeat cap status", error);
   }
 }
 
@@ -1627,6 +1846,7 @@ async function pollDuplicateCleanerStatus() {
         if (els.datasetPathInput) els.datasetPathInput.value = outputPath;
         if (els.cleanerDatasetPathInput) els.cleanerDatasetPathInput.value = outputPath;
         if (els.textNormalizerDatasetPathInput) els.textNormalizerDatasetPathInput.value = outputPath;
+        if (els.englishCapDatasetPathInput) els.englishCapDatasetPathInput.value = outputPath;
         if (els.duplicateDatasetPathInput) els.duplicateDatasetPathInput.value = outputPath;
         const maxRows = Number(els.maxRowsInput?.value || 0);
         await loadServerDataset({ path: outputPath, maxRows, silent: true });
@@ -3005,6 +3225,7 @@ function bindEvents() {
   };
 
   on(els.navViewer, "click", () => switchPage("viewer"));
+  on(els.navHfHub, "click", () => switchPage("hfHub"));
   on(els.navGenerator, "click", () => switchPage("generator"));
   on(els.navCleaner, "click", () => switchPage("cleaner"));
   on(els.messageClose, "click", clearMessage);
@@ -3017,6 +3238,8 @@ function bindEvents() {
   on(els.cleanerSaveModeInput, "change", setCleanerSaveModeState);
   on(els.textNormalizerForm, "submit", startTextNormalizer);
   on(els.textNormalizerSaveModeInput, "change", setTextNormalizerSaveModeState);
+  on(els.englishCapForm, "submit", startEnglishCapper);
+  on(els.englishCapSaveModeInput, "change", setEnglishCapSaveModeState);
   on(els.duplicateCleanerForm, "submit", startDuplicateCleaner);
   on(els.duplicateSaveModeInput, "change", setDuplicateSaveModeState);
   on(els.loadHfColumnsButton, "click", () => loadHfColumns());
@@ -3133,6 +3356,7 @@ function bindEvents() {
 bindEvents();
 setCleanerSaveModeState();
 setTextNormalizerSaveModeState();
+setEnglishCapSaveModeState();
 setDuplicateSaveModeState();
 render();
 switchPage("viewer");

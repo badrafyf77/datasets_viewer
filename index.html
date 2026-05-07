@@ -22,6 +22,10 @@
             <span>Datasets Viewer</span>
             <small>Load a dataset path and inspect rows</small>
           </button>
+          <button class="nav-button" id="navHfHub" type="button">
+            <span>Hugging Face Hub</span>
+            <small>Import, merge, and publish datasets</small>
+          </button>
           <button class="nav-button" id="navGenerator" type="button">
             <span>Darija Code-Switch Generator</span>
             <small>Create synthetic text and TTS audio</small>
@@ -107,80 +111,6 @@
                 Load Dataset
               </button>
             </form>
-          </section>
-
-          <section class="panel form-panel">
-            <div class="panel-heading">
-              <h2>Import From Hugging Face</h2>
-            </div>
-            <form class="form-grid hf-import-form" id="hfImportForm">
-              <label class="wide-field">
-                <span>Dataset repo id</span>
-                <input
-                  id="hfImportRepoInput"
-                  type="text"
-                  placeholder="mozilla-foundation/common_voice_17_0"
-                  autocomplete="off"
-                />
-              </label>
-              <label>
-                <span>Subset/config</span>
-                <input
-                  id="hfImportConfigInput"
-                  type="text"
-                  placeholder="ar"
-                  autocomplete="off"
-                />
-              </label>
-              <label>
-                <span>Split</span>
-                <input
-                  id="hfImportSplitInput"
-                  type="text"
-                  placeholder="train"
-                  autocomplete="off"
-                />
-              </label>
-              <label class="wide-field">
-                <span>Local folder</span>
-                <input
-                  id="hfImportOutputInput"
-                  type="text"
-                  placeholder="Leave empty for synthetic_cs_dataset/data/hf_imports/..."
-                  autocomplete="off"
-                />
-              </label>
-              <label>
-                <span>Revision</span>
-                <input
-                  id="hfImportRevisionInput"
-                  type="text"
-                  placeholder="main"
-                  autocomplete="off"
-                />
-              </label>
-              <label class="checkbox-field">
-                <input id="hfImportOverwriteInput" type="checkbox" />
-                <span>Overwrite folder</span>
-              </label>
-              <label class="checkbox-field">
-                <input id="hfImportTrustRemoteCodeInput" type="checkbox" />
-                <span>Trust remote code</span>
-              </label>
-              <button class="button primary" id="importHfDatasetButton" type="submit">
-                Import Dataset
-              </button>
-            </form>
-            <div class="progress-card" id="hfImportProgressCard" hidden>
-              <div class="progress-header">
-                <strong id="hfImportProgressLabel">Waiting</strong>
-                <span id="hfImportProgressPercent">0%</span>
-              </div>
-              <div class="progress-track" aria-label="Hugging Face import progress">
-                <div class="progress-fill" id="hfImportProgressFill"></div>
-              </div>
-              <p class="hint" id="hfImportProgressDetails">No import running.</p>
-            </div>
           </section>
 
           <section class="panel dataset-panel">
@@ -348,6 +278,196 @@
           </section>
         </section>
 
+        <section class="workspace-page" id="hfHubPage" hidden>
+          <header class="page-header">
+            <div>
+              <p class="eyebrow">Hugging Face Hub</p>
+              <h2>Import, merge, and publish Hugging Face datasets.</h2>
+              <p>
+                Pull datasets from the Hub, combine saved `hf_dataset` folders,
+                then push selected columns back to a dataset repository.
+              </p>
+            </div>
+          </header>
+
+          <section class="panel form-panel">
+            <div class="panel-heading">
+              <h2>Import From Hugging Face</h2>
+            </div>
+            <form class="form-grid hf-import-form" id="hfImportForm">
+              <label class="wide-field">
+                <span>Dataset repo id</span>
+                <input
+                  id="hfImportRepoInput"
+                  type="text"
+                  placeholder="mozilla-foundation/common_voice_17_0"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Subset/config</span>
+                <input
+                  id="hfImportConfigInput"
+                  type="text"
+                  placeholder="ar"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Split</span>
+                <input
+                  id="hfImportSplitInput"
+                  type="text"
+                  placeholder="train"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="wide-field">
+                <span>Local folder</span>
+                <input
+                  id="hfImportOutputInput"
+                  type="text"
+                  placeholder="Leave empty for synthetic_cs_dataset/data/hf_imports/..."
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Revision</span>
+                <input
+                  id="hfImportRevisionInput"
+                  type="text"
+                  placeholder="main"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="checkbox-field">
+                <input id="hfImportOverwriteInput" type="checkbox" />
+                <span>Overwrite folder</span>
+              </label>
+              <label class="checkbox-field">
+                <input id="hfImportTrustRemoteCodeInput" type="checkbox" />
+                <span>Trust remote code</span>
+              </label>
+              <button class="button primary" id="importHfDatasetButton" type="submit">
+                Import Dataset
+              </button>
+            </form>
+            <div class="progress-card" id="hfImportProgressCard" hidden>
+              <div class="progress-header">
+                <strong id="hfImportProgressLabel">Waiting</strong>
+                <span id="hfImportProgressPercent">0%</span>
+              </div>
+              <div class="progress-track" aria-label="Hugging Face import progress">
+                <div class="progress-fill" id="hfImportProgressFill"></div>
+              </div>
+              <p class="hint" id="hfImportProgressDetails">No import running.</p>
+            </div>
+          </section>
+
+          <section class="panel form-panel">
+            <div class="panel-heading">
+              <h2>Merge HF Datasets</h2>
+            </div>
+            <form class="form-grid hf-merge-form" id="hfMergeForm">
+              <label class="wide-field">
+                <span>HF dataset paths</span>
+                <textarea
+                  id="hfDatasetPathsInput"
+                  rows="5"
+                  autocomplete="off"
+                >synthetic_cs_dataset/data_batch_01/hf_dataset
+synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
+              </label>
+              <label class="wide-field">
+                <span>Merged output folder</span>
+                <input
+                  id="hfMergeOutputInput"
+                  type="text"
+                  value="synthetic_cs_dataset/data_merged/hf_dataset"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="checkbox-field">
+                <input id="hfOverwriteInput" type="checkbox" />
+                <span>Overwrite output</span>
+              </label>
+              <button class="button primary" id="mergeHfDatasetsButton" type="submit">
+                Merge HF Datasets
+              </button>
+            </form>
+
+            <div class="progress-card" id="hfMergeProgressCard" hidden>
+              <div class="progress-header">
+                <strong id="hfMergeProgressLabel">Waiting</strong>
+                <span id="hfMergeProgressPercent">0%</span>
+              </div>
+              <div class="progress-track" aria-label="HF dataset merge progress">
+                <div class="progress-fill" id="hfMergeProgressFill"></div>
+              </div>
+              <p class="hint" id="hfMergeProgressDetails">No merge running.</p>
+            </div>
+          </section>
+
+          <section class="panel form-panel" id="hfPushPanel">
+            <div class="panel-heading">
+              <h2>Push To Hugging Face</h2>
+            </div>
+            <form class="form-grid hf-push-form" id="hfPushForm">
+              <label class="wide-field">
+                <span>HF dataset path</span>
+                <input
+                  id="hfPushDatasetPathInput"
+                  type="text"
+                  value="synthetic_cs_dataset/data_merged/hf_dataset"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="wide-field">
+                <span>Dataset repo id</span>
+                <input
+                  id="hfRepoIdInput"
+                  type="text"
+                  placeholder="username/darija-code-switch-asr"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="wide-field">
+                <span>Columns to push</span>
+                <textarea
+                  id="hfPushColumnsInput"
+                  rows="4"
+                  placeholder="Leave empty for all columns, or enter one column per line"
+                  autocomplete="off"
+                ></textarea>
+              </label>
+              <button class="button secondary" id="loadHfColumnsButton" type="button">
+                Load Columns
+              </button>
+              <label class="checkbox-field">
+                <input id="hfPrivateRepoInput" type="checkbox" checked />
+                <span>Private repo</span>
+              </label>
+              <button class="button primary" id="pushHfDatasetButton" type="submit">
+                Push To Hugging Face
+              </button>
+            </form>
+            <div class="column-toggles hf-column-toggles" id="hfColumnToggles"></div>
+            <p class="hint">
+              Token source: HF_TOKEN, HUGGINGFACE_TOKEN, synthetic_cs_dataset/.env, or Hugging Face CLI login on the server.
+            </p>
+            <div class="progress-card" id="hfPushProgressCard" hidden>
+              <div class="progress-header">
+                <strong id="hfPushProgressLabel">Waiting</strong>
+                <span id="hfPushProgressPercent">0%</span>
+              </div>
+              <div class="progress-track" aria-label="Hugging Face push progress">
+                <div class="progress-fill" id="hfPushProgressFill"></div>
+              </div>
+              <p class="hint" id="hfPushProgressDetails">No push running.</p>
+            </div>
+          </section>
+        </section>
+
         <section class="workspace-page" id="generatorPage" hidden>
           <header class="page-header">
             <div>
@@ -500,108 +620,6 @@
             </div>
           </section>
 
-          <section class="panel form-panel">
-            <div class="panel-heading">
-              <h2>Merge HF Datasets</h2>
-            </div>
-            <form class="form-grid hf-merge-form" id="hfMergeForm">
-              <label class="wide-field">
-                <span>HF dataset paths</span>
-                <textarea
-                  id="hfDatasetPathsInput"
-                  rows="5"
-                  autocomplete="off"
-                >synthetic_cs_dataset/data_batch_01/hf_dataset
-synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
-              </label>
-              <label class="wide-field">
-                <span>Merged output folder</span>
-                <input
-                  id="hfMergeOutputInput"
-                  type="text"
-                  value="synthetic_cs_dataset/data_merged/hf_dataset"
-                  autocomplete="off"
-                />
-              </label>
-              <label class="checkbox-field">
-                <input id="hfOverwriteInput" type="checkbox" />
-                <span>Overwrite output</span>
-              </label>
-              <button class="button primary" id="mergeHfDatasetsButton" type="submit">
-                Merge HF Datasets
-              </button>
-            </form>
-
-            <div class="progress-card" id="hfMergeProgressCard" hidden>
-              <div class="progress-header">
-                <strong id="hfMergeProgressLabel">Waiting</strong>
-                <span id="hfMergeProgressPercent">0%</span>
-              </div>
-              <div class="progress-track" aria-label="HF dataset merge progress">
-                <div class="progress-fill" id="hfMergeProgressFill"></div>
-              </div>
-              <p class="hint" id="hfMergeProgressDetails">No merge running.</p>
-            </div>
-
-            <div class="publish-panel" id="hfPushPanel">
-              <div class="panel-heading">
-                <h2>Push To Hugging Face</h2>
-              </div>
-              <form class="form-grid hf-push-form" id="hfPushForm">
-                <label class="wide-field">
-                  <span>HF dataset path</span>
-                  <input
-                    id="hfPushDatasetPathInput"
-                    type="text"
-                    value="synthetic_cs_dataset/data_merged/hf_dataset"
-                    autocomplete="off"
-                  />
-                </label>
-                <label class="wide-field">
-                  <span>Dataset repo id</span>
-                  <input
-                    id="hfRepoIdInput"
-                    type="text"
-                    placeholder="username/darija-code-switch-asr"
-                    autocomplete="off"
-                  />
-                </label>
-                <label class="wide-field">
-                  <span>Columns to push</span>
-                  <textarea
-                    id="hfPushColumnsInput"
-                    rows="4"
-                    placeholder="Leave empty for all columns, or enter one column per line"
-                    autocomplete="off"
-                  ></textarea>
-                </label>
-                <button class="button secondary" id="loadHfColumnsButton" type="button">
-                  Load Columns
-                </button>
-                <label class="checkbox-field">
-                  <input id="hfPrivateRepoInput" type="checkbox" checked />
-                  <span>Private repo</span>
-                </label>
-                <button class="button primary" id="pushHfDatasetButton" type="submit">
-                  Push To Hugging Face
-                </button>
-              </form>
-              <div class="column-toggles hf-column-toggles" id="hfColumnToggles"></div>
-              <p class="hint">
-                Token source: HF_TOKEN, HUGGINGFACE_TOKEN, synthetic_cs_dataset/.env, or Hugging Face CLI login on the server.
-              </p>
-              <div class="progress-card" id="hfPushProgressCard" hidden>
-                <div class="progress-header">
-                  <strong id="hfPushProgressLabel">Waiting</strong>
-                  <span id="hfPushProgressPercent">0%</span>
-                </div>
-                <div class="progress-track" aria-label="Hugging Face push progress">
-                  <div class="progress-fill" id="hfPushProgressFill"></div>
-                </div>
-                <p class="hint" id="hfPushProgressDetails">No push running.</p>
-              </div>
-            </div>
-          </section>
         </section>
 
         <section class="workspace-page" id="cleanerPage" hidden>
@@ -857,6 +875,104 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
 
           <section class="panel form-panel">
             <div class="panel-heading">
+              <h2>Temporary English Repeat Cap</h2>
+            </div>
+            <form class="form-grid cleaner-form" id="englishCapForm">
+              <label class="wide-field">
+                <span>Dataset path</span>
+                <input
+                  id="englishCapDatasetPathInput"
+                  type="text"
+                  value="/teamspace/studios/this_studio/darija_clean"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Transcript column</span>
+                <input
+                  id="englishCapTranscriptColumnInput"
+                  type="text"
+                  placeholder="text"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Source column</span>
+                <input
+                  id="englishCapSourceColumnInput"
+                  type="text"
+                  value="source"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Source value</span>
+                <input
+                  id="englishCapSourceValueInput"
+                  type="text"
+                  value="english_accent_4h"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Max per text</span>
+                <input
+                  id="englishCapMaxPerTextInput"
+                  type="number"
+                  min="1"
+                  step="1"
+                  value="4"
+                />
+              </label>
+              <label class="checkbox-field">
+                <input id="englishCapNormalizeTextInput" type="checkbox" checked />
+                <span>Normalize text before matching</span>
+              </label>
+              <label class="wide-field">
+                <span>Save mode</span>
+                <select id="englishCapSaveModeInput">
+                  <option value="copy" selected>Save capped copy</option>
+                  <option value="overwrite">Override original dataset</option>
+                </select>
+              </label>
+              <label class="wide-field" id="englishCapOutputPathField">
+                <span>New dataset path</span>
+                <input
+                  id="englishCapOutputPathInput"
+                  type="text"
+                  value="synthetic_cs_dataset/data_english_capped/hf_dataset"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="checkbox-field" id="englishCapOverwriteOutputField">
+                <input id="englishCapOverwriteOutputInput" type="checkbox" />
+                <span>Overwrite output folder</span>
+              </label>
+              <button
+                class="button primary"
+                id="runEnglishCapButton"
+                type="submit"
+              >
+                Cap English Repeats
+              </button>
+            </form>
+
+            <div class="progress-card" id="englishCapProgressCard" hidden>
+              <div class="progress-header">
+                <strong id="englishCapProgressLabel">Waiting</strong>
+                <span id="englishCapProgressPercent">0%</span>
+              </div>
+              <div class="progress-track" aria-label="English repeat cap progress">
+                <div class="progress-fill" id="englishCapProgressFill"></div>
+              </div>
+              <p class="hint" id="englishCapProgressDetails">No English repeat cap job running.</p>
+            </div>
+
+            <div class="result-box" id="englishCapResult" hidden></div>
+          </section>
+
+          <section class="panel form-panel">
+            <div class="panel-heading">
               <h2>Duplicate Text Removal</h2>
             </div>
             <form class="form-grid cleaner-form" id="duplicateCleanerForm">
@@ -930,6 +1046,6 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="./app.js?v=studio7"></script>
+    <script src="./app.js?v=studio8"></script>
   </body>
 </html>

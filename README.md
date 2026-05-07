@@ -1,10 +1,11 @@
 # Moroccan ASR Dataset Studio
 
-A local web tool for three workflows:
+A local web tool for four workflows:
 
 - **Datasets Viewer**: load a server-side dataset path, choose a row preview limit, inspect rows, and play audio.
+- **Hugging Face Hub**: import datasets from the Hub, merge saved `hf_dataset` folders, and push datasets back to Hugging Face.
 - **Darija Code-Switch Generator**: run a one-sample smoke test or launch the synthetic Darija/French/English dataset pipeline.
-- **Datasets Cleaner**: remove bad ASR samples, then remove duplicate transcript rows.
+- **Datasets Cleaner**: remove bad ASR samples, normalize transcripts, cap English-source repeats, then remove duplicate transcript rows.
 
 ## Run The Studio
 
@@ -23,7 +24,7 @@ Confirm the backend is active:
 http://localhost:8000/api/server-info
 ```
 
-It should return JSON with `synthetic-test` and `generation-jobs` in `features`.
+It should return JSON with `synthetic-test`, `generation-jobs`, `hf-dataset-import`, `hf-dataset-merge`, and `hf-dataset-push` in `features`.
 
 ## Datasets Viewer
 
@@ -34,7 +35,11 @@ Open **Datasets Viewer**, set:
 
 Then click **Load Dataset**.
 
-To pull a dataset directly from the Hub, use **Import From Hugging Face**:
+The viewer supports Hugging Face `save_to_disk` datasets and DatasetDict folders through the Python server. It shows split tables, row stats, exact-value filters for columns such as `language_mix`, searchable value lists, distribution bars, total/visible hours when a duration column is present, column controls, pagination, export, and inline audio when audio paths are available.
+
+## Hugging Face Hub
+
+Open **Hugging Face Hub** to pull a dataset directly from the Hub with **Import From Hugging Face**:
 
 - `Dataset repo id`: for example `owner/dataset-name`
 - `Subset/config`: optional, useful for datasets such as Common Voice language configs
@@ -43,7 +48,9 @@ To pull a dataset directly from the Hub, use **Import From Hugging Face**:
 
 Click **Import Dataset**. The server downloads the dataset with `datasets.load_dataset`, saves it locally with `save_to_disk`, then loads the saved local path into the viewer. For private or gated datasets, set `HF_TOKEN` or authenticate with `huggingface-cli login` in the environment running `viewer_server.py`.
 
-The viewer supports Hugging Face `save_to_disk` datasets and DatasetDict folders through the Python server. It shows split tables, row stats, exact-value filters for columns such as `language_mix`, searchable value lists, distribution bars, total/visible hours when a duration column is present, column controls, pagination, export, and inline audio when audio paths are available.
+After creating multiple `hf_dataset/` folders, use **Merge HF Datasets**. Put one `save_to_disk` folder path per line, choose the merged output folder, then click **Merge HF Datasets**. If you open the site from your laptop through a cloud forwarded port, these paths are still paths on the cloud machine running `viewer_server.py`.
+
+The **Push To Hugging Face** form can push any server-side `hf_dataset` path. Click **Load Columns** to choose which columns to upload; leaving the columns field empty pushes all columns.
 
 ## Darija Code-Switch Generator
 
@@ -61,10 +68,6 @@ synthetic_cs_dataset/data/smoke_test/
 
 For a full run, set the generation parameters and click **Generate Dataset**. The page polls the backend and shows a progress bar for text generation and audio generation. The default config now favors faster 5k-style runs: transcript batches run in parallel, and extra phone augmentation is off unless you raise its probability.
 
-After creating multiple `hf_dataset/` folders, use **Merge HF Datasets** on the same page. Put one `save_to_disk` folder path per line, choose the merged output folder, then click **Merge HF Datasets**. If you open the site from your laptop through a cloud forwarded port, these paths are still paths on the cloud machine running `viewer_server.py`.
-
-The **Push To Hugging Face** form can push any server-side `hf_dataset` path. Click **Load Columns** to choose which columns to upload; leaving the columns field empty pushes all columns.
-
 ## Datasets Cleaner
 
 Open **Datasets Cleaner**.
@@ -75,6 +78,8 @@ Phase 1, **Bad Sample Removal**, removes rows that fail either check:
 - Transcript length outside the chars/sec range, default `5` to `22`
 
 Phase 2, **Transcript Normalization**, applies `tools/best_asr_text_normalizer.py` to a transcript column. By default it writes a `normalized_text` column, preserving Darija in Arabic script and French/English code-switch words in Latin script.
+
+Temporary phase, **Temporary English Repeat Cap**, only touches rows whose `source` value is `english_accent_4h`. It keeps at most four rows for each repeated transcript and leaves all other sources unchanged.
 
 Phase 3, **Duplicate Text Removal**, removes repeated transcript rows and keeps the first occurrence. By default it normalizes spaces, casing, and simple punctuation before matching duplicate text.
 

@@ -3125,9 +3125,9 @@ def run_data_augmentation_job(job_id: str, params: dict, site_root: Path) -> Non
 
         split_name = str(params.get("split") or "train").strip()
         source_column_request = str(params.get("source_column") or "source").strip()
-        include_terms = collect_filter_terms(params.get("include_source_terms") or "darija,doda,french,english")
+        include_terms = collect_filter_terms(params.get("include_source_terms") or "")
         exclude_terms = collect_filter_terms(
-            params.get("exclude_source_terms") or "tts,code_switch,codeswitch,code-switch,new_speakers"
+            params.get("exclude_source_terms") or "darija_codeswitch_asr"
         )
         max_copies_per_original = parse_cleaner_int(params, "max_copies_per_original", 2)
         if max_copies_per_original < 1 or max_copies_per_original > 5:
@@ -3229,11 +3229,15 @@ def run_data_augmentation_job(job_id: str, params: dict, site_root: Path) -> Non
         total_seconds = 0.0
         eligible_seconds = 0.0
         skipped: dict[str, int] = {}
+        source_counts: dict[str, int] = {}
 
         for split in target_splits:
             dataset = prepared_splits[split]
             for index in range(len(dataset)):
                 row = dict(dataset[index])
+                source_value = str(row.get(source_column) or "") if source_column else ""
+                source_key = source_value or "<blank>"
+                source_counts[source_key] = source_counts.get(source_key, 0) + 1
                 duration = parse_duration_seconds(row.get(duration_column), duration_column) if duration_column else 0.0
                 audio_path = None
                 temp_audio = None
@@ -3269,7 +3273,7 @@ def run_data_augmentation_job(job_id: str, params: dict, site_root: Path) -> Non
                         "data": row,
                         "audio_path": audio_path,
                         "duration": duration,
-                        "source": str(row.get(source_column) or "") if source_column else "",
+                        "source": source_value,
                         "used_types": set(),
                         "copies": 0,
                     }
@@ -3278,7 +3282,17 @@ def run_data_augmentation_job(job_id: str, params: dict, site_root: Path) -> Non
         if total_seconds <= 0:
             raise RuntimeError("Could not measure dataset duration for augmentation.")
         if not candidates:
-            raise RuntimeError("No eligible audio rows matched the augmentation source filters.")
+            source_preview = ", ".join(
+                f"{source}:{count}"
+                for source, count in sorted(source_counts.items(), key=lambda item: item[1], reverse=True)[:8]
+            )
+            skipped_preview = ", ".join(f"{reason}:{count}" for reason, count in sorted(skipped.items()))
+            raise RuntimeError(
+                "No eligible audio rows matched the augmentation filters. "
+                f"Skipped: {skipped_preview or 'none'}. "
+                f"Seen source values: {source_preview or 'none'}. "
+                f"Include contains: {include_terms or 'any'}. Exclude contains: {exclude_terms or 'none'}."
+            )
 
         target_seconds = total_seconds * (target_extra_percent / 100.0)
         transform_caps = {

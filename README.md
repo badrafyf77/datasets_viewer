@@ -79,7 +79,7 @@ Phase 1, **Bad Sample Removal**, removes rows that fail either check:
 
 Phase 2, **Duration Filtering**, keeps the default `1` to `30` second range and removes samples outside it, including clips under `0.7` seconds. It can read a duration column or fall back to measuring the audio column.
 
-Phase 3, **Data Augmentation**, appends augmented audio copies for selected real-data sources. The target extra percent controls added hours, so `50%` on a `40h` selected split aims for `20h` more audio. It uses speed perturbation (`0.9x`/`1.1x`), synthetic background noise, room reverb, telephony degradation, and gain variation without pitch shifting or stacked effects.
+Phase 3, **Data Augmentation**, appends augmented audio copies for selected real-data sources. The target extra percent controls added hours, so `50%` on a `40h` selected split aims for `20h` more audio. By default it leaves the include source filter empty and excludes `darija_codeswitch_asr`, your TTS source. It uses speed perturbation (`0.9x`/`1.1x`), synthetic background noise, room reverb, telephony degradation, and gain variation without pitch shifting or stacked effects.
 
 Phase 4, **Transcript Normalization**, applies `tools/best_asr_text_normalizer.py` to a transcript column. By default it writes a `normalized_text` column, preserving Darija in Arabic script and French/English code-switch words in Latin script.
 

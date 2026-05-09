@@ -432,20 +432,44 @@ const els = {
   duplicateResult: document.getElementById("duplicateResult"),
 
   sourceRemovalForm: document.getElementById("sourceRemovalForm"),
-  sourceRemovalDatasetPathInput: document.getElementById("sourceRemovalDatasetPathInput"),
+  sourceRemovalDatasetPathInput: document.getElementById(
+    "sourceRemovalDatasetPathInput",
+  ),
   sourceRemovalColumnInput: document.getElementById("sourceRemovalColumnInput"),
-  sourceRemovalSourcesInput: document.getElementById("sourceRemovalSourcesInput"),
-  sourceRemovalSaveModeInput: document.getElementById("sourceRemovalSaveModeInput"),
-  sourceRemovalOutputPathField: document.getElementById("sourceRemovalOutputPathField"),
-  sourceRemovalOutputPathInput: document.getElementById("sourceRemovalOutputPathInput"),
-  sourceRemovalOverwriteOutputField: document.getElementById("sourceRemovalOverwriteOutputField"),
-  sourceRemovalOverwriteOutputInput: document.getElementById("sourceRemovalOverwriteOutputInput"),
+  sourceRemovalSourcesInput: document.getElementById(
+    "sourceRemovalSourcesInput",
+  ),
+  sourceRemovalSaveModeInput: document.getElementById(
+    "sourceRemovalSaveModeInput",
+  ),
+  sourceRemovalOutputPathField: document.getElementById(
+    "sourceRemovalOutputPathField",
+  ),
+  sourceRemovalOutputPathInput: document.getElementById(
+    "sourceRemovalOutputPathInput",
+  ),
+  sourceRemovalOverwriteOutputField: document.getElementById(
+    "sourceRemovalOverwriteOutputField",
+  ),
+  sourceRemovalOverwriteOutputInput: document.getElementById(
+    "sourceRemovalOverwriteOutputInput",
+  ),
   runSourceRemovalButton: document.getElementById("runSourceRemovalButton"),
-  sourceRemovalProgressCard: document.getElementById("sourceRemovalProgressCard"),
-  sourceRemovalProgressLabel: document.getElementById("sourceRemovalProgressLabel"),
-  sourceRemovalProgressPercent: document.getElementById("sourceRemovalProgressPercent"),
-  sourceRemovalProgressFill: document.getElementById("sourceRemovalProgressFill"),
-  sourceRemovalProgressDetails: document.getElementById("sourceRemovalProgressDetails"),
+  sourceRemovalProgressCard: document.getElementById(
+    "sourceRemovalProgressCard",
+  ),
+  sourceRemovalProgressLabel: document.getElementById(
+    "sourceRemovalProgressLabel",
+  ),
+  sourceRemovalProgressPercent: document.getElementById(
+    "sourceRemovalProgressPercent",
+  ),
+  sourceRemovalProgressFill: document.getElementById(
+    "sourceRemovalProgressFill",
+  ),
+  sourceRemovalProgressDetails: document.getElementById(
+    "sourceRemovalProgressDetails",
+  ),
   sourceRemovalResult: document.getElementById("sourceRemovalResult"),
 
   toast: document.getElementById("toast"),
@@ -2686,7 +2710,8 @@ async function pollDuplicateCleanerStatus() {
 }
 
 function setSourceRemovalSaveModeState() {
-  const isOverwrite = els.sourceRemovalSaveModeInput?.value === "overwrite";
+  const mode = String(els.sourceRemovalSaveModeInput?.value || "copy").trim();
+  const isOverwrite = mode === "overwrite";
   if (els.sourceRemovalOutputPathField)
     els.sourceRemovalOutputPathField.hidden = isOverwrite;
   if (els.sourceRemovalOverwriteOutputField)
@@ -4405,6 +4430,7 @@ function bindEvents() {
   on(els.duplicateSaveModeInput, "change", setDuplicateSaveModeState);
   on(els.sourceRemovalForm, "submit", startSourceRemoval);
   on(els.sourceRemovalSaveModeInput, "change", setSourceRemovalSaveModeState);
+  on(els.sourceRemovalSaveModeInput, "input", setSourceRemovalSaveModeState);
   on(els.loadHfColumnsButton, "click", () => loadHfColumns());
   on(els.hfPushDatasetPathInput, "input", () => {
     state.hfPushColumns = [];

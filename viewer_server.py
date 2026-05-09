@@ -183,6 +183,9 @@ class DatasetViewerHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/cleaner/bad-samples/start":
             self.start_dataset_cleaner()
             return
+        if parsed.path == "/api/cleaner/source-removal/start":
+            self.start_source_removal()
+            return
         if parsed.path == "/api/cleaner/duplicates/start":
             self.start_duplicate_cleaner()
             return
@@ -521,6 +524,39 @@ class DatasetViewerHandler(SimpleHTTPRequestHandler):
 
         thread = threading.Thread(
             target=run_dataset_cleaner_job,
+            args=(job_id, params, self.site_root),
+            daemon=True,
+        )
+        thread.start()
+        self.send_json({"ok": True, "job_id": job_id, "job": public_job(job)})
+
+    def start_source_removal(self) -> None:
+        try:
+            params = self.read_json_body()
+        except ValueError as exc:
+            self.send_error_json(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+
+        job_id = uuid.uuid4().hex[:12]
+        job = {
+            "id": job_id,
+            "ok": True,
+            "status": "queued",
+            "stage": "Queued",
+            "percent": 0,
+            "message": "Waiting to remove sources.",
+            "error": "",
+            "log_tail": "",
+            "started_at": time.time(),
+            "updated_at": time.time(),
+            "params": params,
+            "result": {},
+        }
+        with CLEANER_LOCK:
+            CLEANER_JOBS[job_id] = job
+
+        thread = threading.Thread(
+            target=run_source_removal_job,
             args=(job_id, params, self.site_root),
             daemon=True,
         )
@@ -1975,8 +2011,6 @@ def evaluate_cleaner_row(
     cer_fn,
     cer_threshold: float,
     language: str,
-    source_column: str = "source",
-    remove_sources: list[str] | None = None,
 ) -> tuple[bool, dict]:
     reasons: list[str] = []
     details: dict = {
@@ -1985,13 +2019,6 @@ def evaluate_cleaner_row(
         "id": bad_sample_identity(row),
         "reason": "",
     }
-
-    if remove_sources:
-        row_source = str(row.get(source_column, "")).strip()
-        if row_source and row_source in remove_sources:
-            reasons.append("source_removed")
-            details["reason"] = "source_removed"
-            return True, details
 
     expected_text = normalized_asr_text(row.get(transcript_column, ""))
     details["expected"] = expected_text
@@ -2072,6 +2099,11 @@ def augmentation_report_path(output_path: Path) -> Path:
 def text_normalization_report_path(output_path: Path) -> Path:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     return output_path.parent / f"{output_path.name}_text_normalization_report_{stamp}.json"
+
+
+def source_removal_report_path(output_path: Path) -> Path:
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    return output_path.parent / f"{output_path.name}_source_removal_report_{stamp}.json"
 
 
 def normalize_duplicate_text(value: str, normalize: bool) -> str:
@@ -2494,10 +2526,8 @@ def run_dataset_cleaner_job(job_id: str, params: dict, site_root: Path) -> None:
 
         use_whisper = cleaner_bool(params, "use_whisper", True)
         use_cps = cleaner_bool(params, "use_cps", True)
-        source_column = str(params.get("source_column") or "source").strip()
-        remove_sources = [s.strip() for s in str(params.get("remove_sources") or "").split(",") if s.strip()]
-        if not use_whisper and not use_cps and not remove_sources:
-            raise RuntimeError("Enable at least one cleaning check or specify sources to remove.")
+        if not use_whisper and not use_cps:
+            raise RuntimeError("Enable at least one cleaning check.")
 
         whisper_model_name = str(params.get("whisper_model") or "large-v3-turbo").strip() or "large-v3-turbo"
         language = str(params.get("language") or "ar").strip()
@@ -2585,8 +2615,6 @@ def run_dataset_cleaner_job(job_id: str, params: dict, site_root: Path) -> None:
                     cer_fn,
                     cer_threshold,
                     language,
-                    source_column,
-                    remove_sources,
                 )
                 if is_bad:
                     bad_samples.append(details)
@@ -2704,6 +2732,204 @@ def run_dataset_cleaner_job(job_id: str, params: dict, site_root: Path) -> None:
             stage="Failed",
             percent=100,
             message="Dataset cleaner failed.",
+            error=str(exc),
+            log_tail=str(exc),
+            result={"output_path": str(output_path) if output_path else ""},
+        )
+
+
+def run_source_removal_job(job_id: str, params: dict, site_root: Path) -> None:
+    pipeline_dir = site_root / "synthetic_cs_dataset"
+    temp_output: Path | None = None
+    output_path: Path | None = None
+    try:
+        dataset_value = str(params.get("dataset_path") or "").strip()
+        if not dataset_value:
+            raise RuntimeError("Missing dataset path.")
+
+        output_mode = str(params.get("output_mode") or "copy").strip()
+        if output_mode not in {"copy", "overwrite"}:
+            raise RuntimeError("Save mode must be `copy` or `overwrite`.")
+
+        dataset_path = resolve_hf_dataset_path(dataset_value, site_root, pipeline_dir, must_exist=True)
+        if not dataset_path.exists():
+            raise RuntimeError(f"Dataset path was not found: {dataset_path}")
+
+        source_column_request = str(params.get("source_column") or "source").strip() or "source"
+        remove_sources_value = str(params.get("remove_sources") or "")
+        remove_sources = [s.strip() for s in remove_sources_value.split(",") if s.strip()]
+        remove_set = {s.lower() for s in remove_sources}
+        if not remove_set:
+            raise RuntimeError("Enter at least one source to remove.")
+
+        output_value = str(params.get("output_path") or "").strip()
+        overwrite_output = cleaner_bool(params, "overwrite_output", False)
+        if output_mode == "overwrite":
+            output_path = dataset_path
+        else:
+            output_path = (
+                resolve_hf_dataset_path(output_value, site_root, pipeline_dir, must_exist=False)
+                if output_value
+                else unique_path(dataset_path.with_name(f"{dataset_path.name}_sources_removed"))
+            )
+            if output_path == dataset_path:
+                raise RuntimeError("Use Override original dataset when the output path is the input path.")
+            if output_path.exists() and not overwrite_output:
+                raise RuntimeError(
+                    f"Output path already exists: {output_path}. Enable overwrite or choose a new folder."
+                )
+
+        update_cleaner_job(
+            job_id,
+            status="running",
+            stage="Loading",
+            percent=5,
+            message=f"Loading dataset from {dataset_path}",
+            result={"input_path": str(dataset_path), "output_path": str(output_path)},
+        )
+
+        try:
+            from datasets import Dataset, DatasetDict, load_from_disk
+        except ImportError as exc:
+            raise RuntimeError("Install the `datasets` package before cleaning datasets.") from exc
+
+        loaded = load_from_disk(str(dataset_path))
+        if isinstance(loaded, DatasetDict):
+            split_map = dict(loaded.items())
+            single_dataset = False
+        elif isinstance(loaded, Dataset):
+            split_map = {"train": loaded}
+            single_dataset = True
+        else:
+            raise RuntimeError(f"Unsupported Hugging Face dataset type at {dataset_path}")
+
+        source_column = infer_common_cleaner_column(
+            split_map,
+            source_column_request,
+            ["source"],
+            "Source",
+        )
+
+        rows_by_split = {split: len(dataset) for split, dataset in split_map.items()}
+        total_rows = sum(rows_by_split.values())
+        if total_rows <= 0:
+            raise RuntimeError("The dataset has no rows to filter.")
+
+        cleaned_splits = {}
+        kept_by_split: dict[str, int] = {}
+        removed_by_split: dict[str, int] = {}
+        processed = 0
+        removed_rows = 0
+        last_update = 0.0
+
+        for split, dataset in split_map.items():
+            good_indices: list[int] = []
+            for index in range(len(dataset)):
+                row = dict(dataset[index])
+                source_value = str(row.get(source_column) or "").strip().lower()
+                if source_value and source_value in remove_set:
+                    removed_rows += 1
+                else:
+                    good_indices.append(index)
+
+                processed += 1
+                now = time.time()
+                if now - last_update >= 1.2 or processed == total_rows:
+                    percent = 10 + min(78, (processed / total_rows) * 78)
+                    update_cleaner_job(
+                        job_id,
+                        stage="Filtering",
+                        percent=round(percent, 1),
+                        message=(
+                            f"Checked {processed}/{total_rows} row(s). "
+                            f"Removed {removed_rows} row(s) so far."
+                        ),
+                        result={
+                            "input_path": str(dataset_path),
+                            "output_path": str(output_path),
+                            "processed_rows": processed,
+                            "removed_rows": removed_rows,
+                            "rows_by_split": rows_by_split,
+                        },
+                    )
+                    last_update = now
+
+            cleaned_splits[split] = dataset.select(good_indices)
+            kept_by_split[split] = len(good_indices)
+            removed_by_split[split] = len(dataset) - len(good_indices)
+
+        cleaned = cleaned_splits["train"] if single_dataset else DatasetDict(cleaned_splits)
+        kept_rows = sum(kept_by_split.values())
+
+        update_cleaner_job(
+            job_id,
+            stage="Saving",
+            percent=92,
+            message=f"Saving filtered dataset to {output_path}",
+            result={
+                "input_path": str(dataset_path),
+                "output_path": str(output_path),
+                "total_rows": total_rows,
+                "kept_rows": kept_rows,
+                "removed_rows": removed_rows,
+                "kept_by_split": kept_by_split,
+                "removed_by_split": removed_by_split,
+            },
+        )
+
+        if output_mode == "overwrite":
+            temp_output = output_path.with_name(f".{output_path.name}.source-removal-{uuid.uuid4().hex[:8]}")
+            temp_output.parent.mkdir(parents=True, exist_ok=True)
+            cleaned.save_to_disk(str(temp_output))
+            guarded_remove_output(output_path, site_root, pipeline_dir)
+            shutil.move(str(temp_output), str(output_path))
+            temp_output = None
+        else:
+            if output_path.exists():
+                guarded_remove_output(output_path, site_root, pipeline_dir)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            cleaned.save_to_disk(str(output_path))
+
+        report_path = source_removal_report_path(output_path)
+        result = {
+            "input_path": str(dataset_path),
+            "output_path": str(output_path),
+            "output_mode": output_mode,
+            "report_path": str(report_path),
+            "total_rows": total_rows,
+            "kept_rows": kept_rows,
+            "removed_rows": removed_rows,
+            "rows_by_split": rows_by_split,
+            "kept_by_split": kept_by_split,
+            "removed_by_split": removed_by_split,
+            "source_column": source_column,
+            "remove_sources": remove_sources,
+        }
+        report_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        DatasetViewerHandler.dataset_cache.clear()
+        DatasetViewerHandler.dataset_path = output_path
+
+        update_cleaner_job(
+            job_id,
+            status="completed",
+            stage="Completed",
+            percent=100,
+            message=f"Removed {removed_rows} row(s) by source. Dataset: {output_path}",
+            result=result,
+        )
+    except Exception as exc:
+        if temp_output and temp_output.exists():
+            try:
+                guarded_remove_output(temp_output, site_root, pipeline_dir)
+            except Exception:
+                pass
+        update_cleaner_job(
+            job_id,
+            status="failed",
+            stage="Failed",
+            percent=100,
+            message="Source removal failed.",
             error=str(exc),
             log_tail=str(exc),
             result={"output_path": str(output_path) if output_path else ""},

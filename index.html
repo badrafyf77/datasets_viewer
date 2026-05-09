@@ -697,24 +697,6 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea
                 />
               </label>
               <label>
-                <span>Source column</span>
-                <input
-                  id="cleanerSourceColumnInput"
-                  type="text"
-                  placeholder="source"
-                  autocomplete="off"
-                />
-              </label>
-              <label>
-                <span>Sources to remove (comma-separated)</span>
-                <input
-                  id="cleanerSourcesToRemoveInput"
-                  type="text"
-                  placeholder="e.g. source_a, source_b"
-                  autocomplete="off"
-                />
-              </label>
-              <label>
                 <span>Whisper model</span>
                 <input
                   id="cleanerWhisperModelInput"
@@ -1324,6 +1306,86 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea
             </div>
 
             <div class="result-box" id="duplicateResult" hidden></div>
+          </section>
+
+          <section class="panel form-panel">
+            <div class="panel-heading">
+              <h2>Source Removal</h2>
+            </div>
+            <form class="form-grid cleaner-form" id="sourceRemovalForm">
+              <label class="wide-field">
+                <span>Dataset path</span>
+                <input
+                  id="sourceRemovalDatasetPathInput"
+                  type="text"
+                  value="/teamspace/studios/this_studio/darija_clean"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Source column</span>
+                <input
+                  id="sourceRemovalColumnInput"
+                  type="text"
+                  placeholder="source"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>Sources to remove (comma-separated)</span>
+                <input
+                  id="sourceRemovalSourcesInput"
+                  type="text"
+                  placeholder="e.g. source_a, source_b"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="wide-field">
+                <span>Save mode</span>
+                <select id="sourceRemovalSaveModeInput">
+                  <option value="copy" selected>Save filtered copy</option>
+                  <option value="overwrite">Override original dataset</option>
+                </select>
+              </label>
+              <label class="wide-field" id="sourceRemovalOutputPathField">
+                <span>New dataset path</span>
+                <input
+                  id="sourceRemovalOutputPathInput"
+                  type="text"
+                  value="synthetic_cs_dataset/data_filtered/hf_dataset"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="checkbox-field" id="sourceRemovalOverwriteOutputField">
+                <input id="sourceRemovalOverwriteOutputInput" type="checkbox" />
+                <span>Overwrite output folder</span>
+              </label>
+              <button
+                class="button primary"
+                id="runSourceRemovalButton"
+                type="submit"
+              >
+                Remove Sources
+              </button>
+            </form>
+
+            <div class="progress-card" id="sourceRemovalProgressCard" hidden>
+              <div class="progress-header">
+                <strong id="sourceRemovalProgressLabel">Waiting</strong>
+                <span id="sourceRemovalProgressPercent">0%</span>
+              </div>
+              <div
+                class="progress-track"
+                aria-label="Source removal progress"
+              >
+                <div class="progress-fill" id="sourceRemovalProgressFill"></div>
+              </div>
+              <p class="hint" id="sourceRemovalProgressDetails">
+                No source removal job running.
+              </p>
+            </div>
+
+            <div class="result-box" id="sourceRemovalResult" hidden></div>
           </section>
         </section>
       </main>

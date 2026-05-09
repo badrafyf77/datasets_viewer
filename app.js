@@ -68,6 +68,8 @@ const state = {
   augmentationPollTimer: null,
   duplicateCleanerJobId: null,
   duplicateCleanerPollTimer: null,
+  sourceRemovalJobId: null,
+  sourceRemovalPollTimer: null,
   mergedHfDatasetPath: "",
   hfPushColumns: [],
 };
@@ -202,10 +204,6 @@ const els = {
     "cleanerTranscriptColumnInput",
   ),
   cleanerAudioColumnInput: document.getElementById("cleanerAudioColumnInput"),
-  cleanerSourceColumnInput: document.getElementById("cleanerSourceColumnInput"),
-  cleanerSourcesToRemoveInput: document.getElementById(
-    "cleanerSourcesToRemoveInput",
-  ),
   cleanerWhisperModelInput: document.getElementById("cleanerWhisperModelInput"),
   cleanerLanguageInput: document.getElementById("cleanerLanguageInput"),
   cleanerCerThresholdInput: document.getElementById("cleanerCerThresholdInput"),
@@ -432,6 +430,24 @@ const els = {
   duplicateProgressFill: document.getElementById("duplicateProgressFill"),
   duplicateProgressDetails: document.getElementById("duplicateProgressDetails"),
   duplicateResult: document.getElementById("duplicateResult"),
+
+  sourceRemovalForm: document.getElementById("sourceRemovalForm"),
+  sourceRemovalDatasetPathInput: document.getElementById("sourceRemovalDatasetPathInput"),
+  sourceRemovalColumnInput: document.getElementById("sourceRemovalColumnInput"),
+  sourceRemovalSourcesInput: document.getElementById("sourceRemovalSourcesInput"),
+  sourceRemovalSaveModeInput: document.getElementById("sourceRemovalSaveModeInput"),
+  sourceRemovalOutputPathField: document.getElementById("sourceRemovalOutputPathField"),
+  sourceRemovalOutputPathInput: document.getElementById("sourceRemovalOutputPathInput"),
+  sourceRemovalOverwriteOutputField: document.getElementById("sourceRemovalOverwriteOutputField"),
+  sourceRemovalOverwriteOutputInput: document.getElementById("sourceRemovalOverwriteOutputInput"),
+  runSourceRemovalButton: document.getElementById("runSourceRemovalButton"),
+  sourceRemovalProgressCard: document.getElementById("sourceRemovalProgressCard"),
+  sourceRemovalProgressLabel: document.getElementById("sourceRemovalProgressLabel"),
+  sourceRemovalProgressPercent: document.getElementById("sourceRemovalProgressPercent"),
+  sourceRemovalProgressFill: document.getElementById("sourceRemovalProgressFill"),
+  sourceRemovalProgressDetails: document.getElementById("sourceRemovalProgressDetails"),
+  sourceRemovalResult: document.getElementById("sourceRemovalResult"),
+
   toast: document.getElementById("toast"),
 };
 
@@ -1643,8 +1659,6 @@ function cleanerParamsFromForm() {
     dataset_path: els.cleanerDatasetPathInput?.value.trim() || "",
     transcript_column: els.cleanerTranscriptColumnInput?.value.trim() || "",
     audio_column: els.cleanerAudioColumnInput?.value.trim() || "",
-    source_column: els.cleanerSourceColumnInput?.value.trim() || "source",
-    remove_sources: els.cleanerSourcesToRemoveInput?.value.trim() || "",
     whisper_model:
       els.cleanerWhisperModelInput?.value.trim() || "large-v3-turbo",
     language: els.cleanerLanguageInput?.value.trim() || "ar",
@@ -2668,6 +2682,195 @@ async function pollDuplicateCleanerStatus() {
     els.runDuplicateCleanerButton.disabled = false;
     els.runDuplicateCleanerButton.textContent = "Remove Duplicates";
     showError("Could not read duplicate cleaner status", error);
+  }
+}
+
+function setSourceRemovalSaveModeState() {
+  const isOverwrite = els.sourceRemovalSaveModeInput?.value === "overwrite";
+  if (els.sourceRemovalOutputPathField)
+    els.sourceRemovalOutputPathField.hidden = isOverwrite;
+  if (els.sourceRemovalOverwriteOutputField)
+    els.sourceRemovalOverwriteOutputField.hidden = isOverwrite;
+}
+
+function setSourceRemovalProgress(status = {}) {
+  setProgressElements(
+    {
+      card: els.sourceRemovalProgressCard,
+      fill: els.sourceRemovalProgressFill,
+      percent: els.sourceRemovalProgressPercent,
+      label: els.sourceRemovalProgressLabel,
+      details: els.sourceRemovalProgressDetails,
+    },
+    status,
+  );
+}
+
+function sourceRemovalParamsFromForm() {
+  return {
+    dataset_path: els.sourceRemovalDatasetPathInput?.value.trim() || "",
+    source_column: els.sourceRemovalColumnInput?.value.trim() || "source",
+    remove_sources: els.sourceRemovalSourcesInput?.value.trim() || "",
+    output_mode: els.sourceRemovalSaveModeInput?.value || "copy",
+    output_path: els.sourceRemovalOutputPathInput?.value.trim() || "",
+    overwrite_output: Boolean(els.sourceRemovalOverwriteOutputInput?.checked),
+  };
+}
+
+function renderSourceRemovalResult(result = {}) {
+  if (!els.sourceRemovalResult) return;
+  const removed = Number(result.removed_rows || 0);
+  const total = Number(result.total_rows || 0);
+  const kept = Number(result.kept_rows || 0);
+  const outputPath = result.output_path || "";
+  const removedBySplit = formatSplitCounts(result.removed_by_split);
+
+  els.sourceRemovalResult.hidden = false;
+  els.sourceRemovalResult.textContent = [
+    `Removed ${formatNumber(removed)} sample(s) based on source from ${formatNumber(total)} total.`,
+    `Kept ${formatNumber(kept)} sample(s).`,
+    removedBySplit ? `Removed by split: ${removedBySplit}.` : "",
+    outputPath ? `Saved dataset: ${outputPath}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+async function startSourceRemoval(event) {
+  if (event) event.preventDefault();
+  if (!state.datasetCleanerAvailable) {
+    showError("Backend offline", "The dataset viewer backend is not running.");
+    return;
+  }
+
+  const params = sourceRemovalParamsFromForm();
+  if (!params.dataset_path) {
+    showError(
+      "Missing dataset path",
+      "Enter the Hugging Face dataset folder path before starting.",
+    );
+    return;
+  }
+  if (!params.remove_sources) {
+    showError("Missing sources", "Enter at least one source name to remove.");
+    return;
+  }
+  if (params.output_mode === "copy" && !params.output_path) {
+    showError(
+      "Missing output path",
+      "Enter a destination for the filtered dataset copy.",
+    );
+    return;
+  }
+  if (params.output_mode === "overwrite") {
+    const confirmed = window.confirm(
+      `Override the original dataset at ${params.dataset_path}?`,
+    );
+    if (!confirmed) return;
+  }
+
+  window.clearInterval(state.sourceRemovalPollTimer);
+  state.sourceRemovalJobId = null;
+  if (els.sourceRemovalResult) els.sourceRemovalResult.hidden = true;
+  if (els.runSourceRemovalButton) {
+    els.runSourceRemovalButton.disabled = true;
+    els.runSourceRemovalButton.textContent = "Removing...";
+  }
+  setSourceRemovalProgress({
+    percent: 1,
+    stage: "Starting",
+    message: "Preparing source removal...",
+  });
+
+  try {
+    const response = await fetch("./api/cleaner/source-removal/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok)
+      throw new Error(payload.error || `HTTP ${response.status}`);
+    state.sourceRemovalJobId = payload.job_id;
+    pollSourceRemovalStatus();
+    state.sourceRemovalPollTimer = window.setInterval(
+      pollSourceRemovalStatus,
+      1500,
+    );
+  } catch (error) {
+    if (els.runSourceRemovalButton) {
+      els.runSourceRemovalButton.disabled = false;
+      els.runSourceRemovalButton.textContent = "Remove Sources";
+    }
+    showError("Could not start source removal", error);
+  }
+}
+
+async function pollSourceRemovalStatus() {
+  if (!state.sourceRemovalJobId) return;
+  try {
+    const response = await fetch(
+      `./api/cleaner/status?id=${encodeURIComponent(state.sourceRemovalJobId)}`,
+      {
+        cache: "no-store",
+      },
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok)
+      throw new Error(payload.error || `HTTP ${response.status}`);
+    setSourceRemovalProgress(payload.job);
+
+    if (payload.job.status === "completed") {
+      window.clearInterval(state.sourceRemovalPollTimer);
+      if (els.runSourceRemovalButton) {
+        els.runSourceRemovalButton.disabled = false;
+        els.runSourceRemovalButton.textContent = "Remove Sources";
+      }
+      const result = payload.job.result || {};
+      const outputPath = result.output_path || "";
+      renderSourceRemovalResult(result);
+      if (outputPath) {
+        if (els.datasetPathInput) els.datasetPathInput.value = outputPath;
+        if (els.cleanerDatasetPathInput)
+          els.cleanerDatasetPathInput.value = outputPath;
+        if (els.textNormalizerDatasetPathInput)
+          els.textNormalizerDatasetPathInput.value = outputPath;
+        if (els.durationFilterDatasetPathInput)
+          els.durationFilterDatasetPathInput.value = outputPath;
+        if (els.augmentationDatasetPathInput)
+          els.augmentationDatasetPathInput.value = outputPath;
+        if (els.duplicateDatasetPathInput)
+          els.duplicateDatasetPathInput.value = outputPath;
+        if (els.sourceRemovalDatasetPathInput)
+          els.sourceRemovalDatasetPathInput.value = outputPath;
+        const maxRows = Number(els.maxRowsInput?.value || 0);
+        await loadServerDataset({ path: outputPath, maxRows, silent: true });
+      }
+      showMessage(
+        "success",
+        "Source removal completed",
+        `Removed ${formatNumber(result.removed_rows || 0)} sample(s).`,
+        outputPath,
+      );
+    } else if (payload.job.status === "failed") {
+      window.clearInterval(state.sourceRemovalPollTimer);
+      if (els.runSourceRemovalButton) {
+        els.runSourceRemovalButton.disabled = false;
+        els.runSourceRemovalButton.textContent = "Remove Sources";
+      }
+      showError(
+        "Source removal failed",
+        payload.job.error || "The source removal job failed.",
+        payload.job.log_tail || "",
+      );
+    }
+  } catch (error) {
+    window.clearInterval(state.sourceRemovalPollTimer);
+    if (els.runSourceRemovalButton) {
+      els.runSourceRemovalButton.disabled = false;
+      els.runSourceRemovalButton.textContent = "Remove Sources";
+    }
+    showError("Could not read source removal status", error);
   }
 }
 
@@ -4200,6 +4403,8 @@ function bindEvents() {
   on(els.augmentationSaveModeInput, "change", setAugmentationSaveModeState);
   on(els.duplicateCleanerForm, "submit", startDuplicateCleaner);
   on(els.duplicateSaveModeInput, "change", setDuplicateSaveModeState);
+  on(els.sourceRemovalForm, "submit", startSourceRemoval);
+  on(els.sourceRemovalSaveModeInput, "change", setSourceRemovalSaveModeState);
   on(els.loadHfColumnsButton, "click", () => loadHfColumns());
   on(els.hfPushDatasetPathInput, "input", () => {
     state.hfPushColumns = [];
@@ -4321,6 +4526,7 @@ setTextNormalizerSaveModeState();
 setDurationFilterSaveModeState();
 setAugmentationSaveModeState();
 setDuplicateSaveModeState();
+setSourceRemovalSaveModeState();
 render();
 switchPage("viewer");
 detectServerFeatures();

@@ -1975,6 +1975,8 @@ def evaluate_cleaner_row(
     cer_fn,
     cer_threshold: float,
     language: str,
+    source_column: str = "source",
+    remove_sources: list[str] | None = None,
 ) -> tuple[bool, dict]:
     reasons: list[str] = []
     details: dict = {
@@ -1983,6 +1985,13 @@ def evaluate_cleaner_row(
         "id": bad_sample_identity(row),
         "reason": "",
     }
+
+    if remove_sources:
+        row_source = str(row.get(source_column, "")).strip()
+        if row_source and row_source in remove_sources:
+            reasons.append("source_removed")
+            details["reason"] = "source_removed"
+            return True, details
 
     expected_text = normalized_asr_text(row.get(transcript_column, ""))
     details["expected"] = expected_text
@@ -2485,8 +2494,10 @@ def run_dataset_cleaner_job(job_id: str, params: dict, site_root: Path) -> None:
 
         use_whisper = cleaner_bool(params, "use_whisper", True)
         use_cps = cleaner_bool(params, "use_cps", True)
-        if not use_whisper and not use_cps:
-            raise RuntimeError("Enable at least one cleaning check.")
+        source_column = str(params.get("source_column") or "source").strip()
+        remove_sources = [s.strip() for s in str(params.get("remove_sources") or "").split(",") if s.strip()]
+        if not use_whisper and not use_cps and not remove_sources:
+            raise RuntimeError("Enable at least one cleaning check or specify sources to remove.")
 
         whisper_model_name = str(params.get("whisper_model") or "large-v3-turbo").strip() or "large-v3-turbo"
         language = str(params.get("language") or "ar").strip()
@@ -2574,6 +2585,8 @@ def run_dataset_cleaner_job(job_id: str, params: dict, site_root: Path) -> None:
                     cer_fn,
                     cer_threshold,
                     language,
+                    source_column,
+                    remove_sources,
                 )
                 if is_bad:
                     bad_samples.append(details)

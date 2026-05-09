@@ -183,6 +183,8 @@ const els = {
   cleanerDatasetPathInput: document.getElementById("cleanerDatasetPathInput"),
   cleanerTranscriptColumnInput: document.getElementById("cleanerTranscriptColumnInput"),
   cleanerAudioColumnInput: document.getElementById("cleanerAudioColumnInput"),
+  cleanerSourceColumnInput: document.getElementById("cleanerSourceColumnInput"),
+  cleanerSourcesToRemoveInput: document.getElementById("cleanerSourcesToRemoveInput"),
   cleanerWhisperModelInput: document.getElementById("cleanerWhisperModelInput"),
   cleanerLanguageInput: document.getElementById("cleanerLanguageInput"),
   cleanerCerThresholdInput: document.getElementById("cleanerCerThresholdInput"),
@@ -1319,6 +1321,8 @@ function cleanerParamsFromForm() {
     dataset_path: els.cleanerDatasetPathInput?.value.trim() || "",
     transcript_column: els.cleanerTranscriptColumnInput?.value.trim() || "",
     audio_column: els.cleanerAudioColumnInput?.value.trim() || "",
+    source_column: els.cleanerSourceColumnInput?.value.trim() || "source",
+    remove_sources: els.cleanerSourcesToRemoveInput?.value.trim() || "",
     whisper_model: els.cleanerWhisperModelInput?.value.trim() || "large-v3-turbo",
     language: els.cleanerLanguageInput?.value.trim() || "ar",
     cer_threshold: Number(els.cleanerCerThresholdInput?.value || 0.6),
@@ -1598,8 +1602,8 @@ async function startDatasetCleaner(event) {
     showError("Missing dataset path", "Enter the Hugging Face dataset folder path before cleaning.");
     return;
   }
-  if (!params.use_whisper && !params.use_cps) {
-    showError("No cleaner checks selected", "Enable Whisper CER, chars/sec, or both.");
+  if (!params.use_whisper && !params.use_cps && !params.remove_sources) {
+    showError("No cleaner checks selected", "Enable Whisper CER, chars/sec, or specify sources to remove.");
     return;
   }
   if (params.min_cps > params.max_cps) {

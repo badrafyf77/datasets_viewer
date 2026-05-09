@@ -348,7 +348,11 @@
                 <input id="hfImportTrustRemoteCodeInput" type="checkbox" />
                 <span>Trust remote code</span>
               </label>
-              <button class="button primary" id="importHfDatasetButton" type="submit">
+              <button
+                class="button primary"
+                id="importHfDatasetButton"
+                type="submit"
+              >
                 Import Dataset
               </button>
             </form>
@@ -357,10 +361,15 @@
                 <strong id="hfImportProgressLabel">Waiting</strong>
                 <span id="hfImportProgressPercent">0%</span>
               </div>
-              <div class="progress-track" aria-label="Hugging Face import progress">
+              <div
+                class="progress-track"
+                aria-label="Hugging Face import progress"
+              >
                 <div class="progress-fill" id="hfImportProgressFill"></div>
               </div>
-              <p class="hint" id="hfImportProgressDetails">No import running.</p>
+              <p class="hint" id="hfImportProgressDetails">
+                No import running.
+              </p>
             </div>
           </section>
 
@@ -371,12 +380,10 @@
             <form class="form-grid hf-merge-form" id="hfMergeForm">
               <label class="wide-field">
                 <span>HF dataset paths</span>
-                <textarea
-                  id="hfDatasetPathsInput"
-                  rows="5"
-                  autocomplete="off"
-                >synthetic_cs_dataset/data_batch_01/hf_dataset
-synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
+                <textarea id="hfDatasetPathsInput" rows="5" autocomplete="off">
+synthetic_cs_dataset/data_batch_01/hf_dataset
+synthetic_cs_dataset/data_batch_02/hf_dataset</textarea
+                >
               </label>
               <label class="wide-field">
                 <span>Merged output folder</span>
@@ -391,7 +398,11 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
                 <input id="hfOverwriteInput" type="checkbox" />
                 <span>Overwrite output</span>
               </label>
-              <button class="button primary" id="mergeHfDatasetsButton" type="submit">
+              <button
+                class="button primary"
+                id="mergeHfDatasetsButton"
+                type="submit"
+              >
                 Merge HF Datasets
               </button>
             </form>
@@ -401,7 +412,10 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
                 <strong id="hfMergeProgressLabel">Waiting</strong>
                 <span id="hfMergeProgressPercent">0%</span>
               </div>
-              <div class="progress-track" aria-label="HF dataset merge progress">
+              <div
+                class="progress-track"
+                aria-label="HF dataset merge progress"
+              >
                 <div class="progress-fill" id="hfMergeProgressFill"></div>
               </div>
               <p class="hint" id="hfMergeProgressDetails">No merge running.</p>
@@ -440,27 +454,43 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
                   autocomplete="off"
                 ></textarea>
               </label>
-              <button class="button secondary" id="loadHfColumnsButton" type="button">
+              <button
+                class="button secondary"
+                id="loadHfColumnsButton"
+                type="button"
+              >
                 Load Columns
               </button>
               <label class="checkbox-field">
                 <input id="hfPrivateRepoInput" type="checkbox" checked />
                 <span>Private repo</span>
               </label>
-              <button class="button primary" id="pushHfDatasetButton" type="submit">
+              <button
+                class="button primary"
+                id="pushHfDatasetButton"
+                type="submit"
+              >
                 Push To Hugging Face
               </button>
             </form>
-            <div class="column-toggles hf-column-toggles" id="hfColumnToggles"></div>
+            <div
+              class="column-toggles hf-column-toggles"
+              id="hfColumnToggles"
+            ></div>
             <p class="hint">
-              Token source: HF_TOKEN, HUGGINGFACE_TOKEN, synthetic_cs_dataset/.env, or Hugging Face CLI login on the server.
+              Token source: HF_TOKEN, HUGGINGFACE_TOKEN,
+              synthetic_cs_dataset/.env, or Hugging Face CLI login on the
+              server.
             </p>
             <div class="progress-card" id="hfPushProgressCard" hidden>
               <div class="progress-header">
                 <strong id="hfPushProgressLabel">Waiting</strong>
                 <span id="hfPushProgressPercent">0%</span>
               </div>
-              <div class="progress-track" aria-label="Hugging Face push progress">
+              <div
+                class="progress-track"
+                aria-label="Hugging Face push progress"
+              >
                 <div class="progress-fill" id="hfPushProgressFill"></div>
               </div>
               <p class="hint" id="hfPushProgressDetails">No push running.</p>
@@ -619,7 +649,6 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
               <p class="hint" id="generationProgressDetails">No job running.</p>
             </div>
           </section>
-
         </section>
 
         <section class="workspace-page" id="cleanerPage" hidden>
@@ -629,7 +658,8 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
               <h2>Remove bad samples from a saved speech dataset.</h2>
               <p>
                 Remove bad audio/text pairs, filter durations, add augmentation,
-                normalize transcript style, then remove repeated transcript rows.
+                normalize transcript style, then remove repeated transcript
+                rows.
               </p>
             </div>
           </header>
@@ -777,7 +807,9 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
               <div class="progress-track" aria-label="Dataset cleaner progress">
                 <div class="progress-fill" id="cleanerProgressFill"></div>
               </div>
-              <p class="hint" id="cleanerProgressDetails">No cleaner job running.</p>
+              <p class="hint" id="cleanerProgressDetails">
+                No cleaner job running.
+              </p>
             </div>
 
             <div class="result-box" id="cleanerResult" hidden></div>
@@ -864,8 +896,14 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
                   autocomplete="off"
                 />
               </label>
-              <label class="checkbox-field" id="textNormalizerOverwriteOutputField">
-                <input id="textNormalizerOverwriteOutputInput" type="checkbox" />
+              <label
+                class="checkbox-field"
+                id="textNormalizerOverwriteOutputField"
+              >
+                <input
+                  id="textNormalizerOverwriteOutputInput"
+                  type="checkbox"
+                />
                 <span>Overwrite output folder</span>
               </label>
               <button
@@ -882,10 +920,18 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
                 <strong id="textNormalizerProgressLabel">Waiting</strong>
                 <span id="textNormalizerProgressPercent">0%</span>
               </div>
-              <div class="progress-track" aria-label="Transcript normalization progress">
-                <div class="progress-fill" id="textNormalizerProgressFill"></div>
+              <div
+                class="progress-track"
+                aria-label="Transcript normalization progress"
+              >
+                <div
+                  class="progress-fill"
+                  id="textNormalizerProgressFill"
+                ></div>
               </div>
-              <p class="hint" id="textNormalizerProgressDetails">No normalization job running.</p>
+              <p class="hint" id="textNormalizerProgressDetails">
+                No normalization job running.
+              </p>
             </div>
 
             <div class="result-box" id="textNormalizerResult" hidden></div>
@@ -946,7 +992,9 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
               <label class="wide-field">
                 <span>Save mode</span>
                 <select id="durationFilterSaveModeInput">
-                  <option value="copy" selected>Save duration-filtered copy</option>
+                  <option value="copy" selected>
+                    Save duration-filtered copy
+                  </option>
                   <option value="overwrite">Override original dataset</option>
                 </select>
               </label>
@@ -959,8 +1007,14 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
                   autocomplete="off"
                 />
               </label>
-              <label class="checkbox-field" id="durationFilterOverwriteOutputField">
-                <input id="durationFilterOverwriteOutputInput" type="checkbox" />
+              <label
+                class="checkbox-field"
+                id="durationFilterOverwriteOutputField"
+              >
+                <input
+                  id="durationFilterOverwriteOutputInput"
+                  type="checkbox"
+                />
                 <span>Overwrite output folder</span>
               </label>
               <button
@@ -977,10 +1031,18 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
                 <strong id="durationFilterProgressLabel">Waiting</strong>
                 <span id="durationFilterProgressPercent">0%</span>
               </div>
-              <div class="progress-track" aria-label="Duration filtering progress">
-                <div class="progress-fill" id="durationFilterProgressFill"></div>
+              <div
+                class="progress-track"
+                aria-label="Duration filtering progress"
+              >
+                <div
+                  class="progress-fill"
+                  id="durationFilterProgressFill"
+                ></div>
               </div>
-              <p class="hint" id="durationFilterProgressDetails">No duration filter job running.</p>
+              <p class="hint" id="durationFilterProgressDetails">
+                No duration filter job running.
+              </p>
             </div>
 
             <div class="result-box" id="durationFilterResult" hidden></div>
@@ -1150,7 +1212,10 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
                   autocomplete="off"
                 />
               </label>
-              <label class="checkbox-field" id="augmentationOverwriteOutputField">
+              <label
+                class="checkbox-field"
+                id="augmentationOverwriteOutputField"
+              >
                 <input id="augmentationOverwriteOutputInput" type="checkbox" />
                 <span>Overwrite output folder</span>
               </label>
@@ -1168,10 +1233,15 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
                 <strong id="augmentationProgressLabel">Waiting</strong>
                 <span id="augmentationProgressPercent">0%</span>
               </div>
-              <div class="progress-track" aria-label="Data augmentation progress">
+              <div
+                class="progress-track"
+                aria-label="Data augmentation progress"
+              >
                 <div class="progress-fill" id="augmentationProgressFill"></div>
               </div>
-              <p class="hint" id="augmentationProgressDetails">No augmentation job running.</p>
+              <p class="hint" id="augmentationProgressDetails">
+                No augmentation job running.
+              </p>
             </div>
 
             <div class="result-box" id="augmentationResult" hidden></div>
@@ -1201,7 +1271,11 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
                 />
               </label>
               <label class="checkbox-field">
-                <input id="duplicateNormalizeTextInput" type="checkbox" checked />
+                <input
+                  id="duplicateNormalizeTextInput"
+                  type="checkbox"
+                  checked
+                />
                 <span>Normalize text before matching</span>
               </label>
               <label class="wide-field">
@@ -1238,10 +1312,15 @@ synthetic_cs_dataset/data_batch_02/hf_dataset</textarea>
                 <strong id="duplicateProgressLabel">Waiting</strong>
                 <span id="duplicateProgressPercent">0%</span>
               </div>
-              <div class="progress-track" aria-label="Duplicate text removal progress">
+              <div
+                class="progress-track"
+                aria-label="Duplicate text removal progress"
+              >
                 <div class="progress-fill" id="duplicateProgressFill"></div>
               </div>
-              <p class="hint" id="duplicateProgressDetails">No duplicate cleaner job running.</p>
+              <p class="hint" id="duplicateProgressDetails">
+                No duplicate cleaner job running.
+              </p>
             </div>
 
             <div class="result-box" id="duplicateResult" hidden></div>
